@@ -5,6 +5,6 @@ $DeploymentParameters = @{
   TenantDomain      = 'dominicschranzoutlook.onmicrosoft.com'
 location = "switzerlandnorth"
 DeploymentSize = "DevTest"
-
+GitRepoUrl = "https://github.com/thatdomi/callrecords-test"
 }
 .\deploy.ps1 @DeploymentParameters
