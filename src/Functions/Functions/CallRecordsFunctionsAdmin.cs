@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using Microsoft.Graph.Models.ODataErrors;
+using Microsoft.Kiota.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.Net;
@@ -136,6 +137,34 @@ namespace CallRecordInsights.Functions
                     Detail = "The application does not have the required permissions to create a subscription for this tenant."
                 });
                 return unauthorizedResponse;
+            }
+            catch (ApiException ex) when (
+                ex.ResponseStatusCode == (int)HttpStatusCode.Unauthorized
+                || ex.ResponseStatusCode == (int)HttpStatusCode.Forbidden)
+            {
+                var unauthorizedResponse = request.CreateResponse((HttpStatusCode)ex.ResponseStatusCode);
+                await unauthorizedResponse.WriteAsJsonAsync(new
+                {
+                    Title = "Graph authorization failed.",
+                    Detail = "Microsoft Graph rejected the subscription request. Verify the function app identity has the required Graph application permissions and that the tenant supports call records subscriptions.",
+                    StatusCode = ex.ResponseStatusCode,
+                    GraphError = ex.Message
+                });
+                return unauthorizedResponse;
+            }
+            catch (ApiException ex)
+            {
+                var graphErrorResponse = request.CreateResponse(ex.ResponseStatusCode is >= 400 and <= 599
+                    ? (HttpStatusCode)ex.ResponseStatusCode
+                    : HttpStatusCode.BadGateway);
+                await graphErrorResponse.WriteAsJsonAsync(new
+                {
+                    Title = "Microsoft Graph request failed.",
+                    Detail = "The function could not create the call records subscription because Microsoft Graph returned an error.",
+                    StatusCode = ex.ResponseStatusCode,
+                    GraphError = ex.Message
+                });
+                return graphErrorResponse;
             }
         }
 

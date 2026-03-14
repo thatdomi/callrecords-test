@@ -592,7 +592,7 @@ $SubscriptionFunctionUrl = "https://${appDomain}/api/subscription"
 $retryInterval = 15
 $RetryCount = 0
 $MaxRetries = 30
-$RetriableErrors = @(500)
+$RetriableErrors = @(500, 502, 503, 504)
 try {
     Write-Host "Triggering function to add the Call Records Graph Subscription (${SubscriptionFunctionUrl})."
     while ($true) {
@@ -601,10 +601,36 @@ try {
             break
         }
         catch {
-            if ($_.Exception.Response.StatusCode -notin $RetriableErrors -or ++$RetryCount -gt $MaxRetries) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+            $responseBody = $null
+            if ($_.ErrorDetails.Message) {
+                $responseBody = $_.ErrorDetails.Message
+            }
+            elseif ($_.Exception.Response.Content) {
+                $responseBody = $_.Exception.Response.Content
+            }
+
+            $responseJson = $null
+            if ($responseBody) {
+                try { $responseJson = $responseBody | ConvertFrom-Json } catch {}
+            }
+
+            if ($statusCode -in @(401, 403)) {
+                $detail = if ($responseJson?.Detail) { $responseJson.Detail } else { $responseBody }
+                Write-Error "Failed to trigger function to add the Call Records Graph Subscription. Microsoft Graph authorization failed. $detail"
+                return
+            }
+
+            if ($statusCode -notin $RetriableErrors -or ++$RetryCount -gt $MaxRetries) {
                 throw
             }
-            Write-Host "Application is not yet authorized to add the Call Records Graph Subscription, awaiting app role propagation, retrying in $retryInterval seconds." -ForegroundColor Yellow
+            $detail = if ($responseJson?.Detail) { $responseJson.Detail } else { $null }
+            if ($detail) {
+                Write-Host "Transient failure creating the Call Records Graph Subscription (HTTP $statusCode): $detail. Retrying in $retryInterval seconds." -ForegroundColor Yellow
+            }
+            else {
+                Write-Host "Transient failure creating the Call Records Graph Subscription (HTTP $statusCode). Retrying in $retryInterval seconds." -ForegroundColor Yellow
+            }
             Start-Sleep -Seconds $retryInterval
             $retryInterval = [Math]::Min(($retryInterval * 2), (2 * 60))
         }
@@ -612,12 +638,13 @@ try {
     Write-Host "Triggering function to add the Call Records Graph Subscription completed successfully." -ForegroundColor Green
 }
 catch {
-    if ($_.Exception.Response.StatusCode -notin $RetriableErrors) {
+    $statusCode = [int]$_.Exception.Response.StatusCode
+    if ($statusCode -notin $RetriableErrors) {
         Write-Error "Failed to trigger function to add the Call Records Graph Subscription."
         Write-Error -ErrorRecord $_
         return
     }
-    Write-Host "Failed to trigger function to add the Call Records Graph Subscription. The application is running but is not yet authorized to add the Call Records Graph Subscription. Try again later." -ForegroundColor Yellow
+    Write-Host "Failed to trigger function to add the Call Records Graph Subscription after transient retries. Try again later." -ForegroundColor Yellow
 }
 
 $HealthFunctionUrl = "https://${appDomain}/api/health"
