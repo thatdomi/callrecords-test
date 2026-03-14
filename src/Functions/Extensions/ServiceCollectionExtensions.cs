@@ -77,9 +77,25 @@ namespace CallRecordInsights.Extensions
         {
             return services.AddSingleton(serviceProvider =>
             {
-                var connectionString = serviceProvider.GetRequiredService<IConfiguration>()
-                    .GetValue<string>("CallRecordsQueueConnection");
-                return new Azure.Storage.Queues.QueueServiceClient(connectionString);
+                var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+                var connectionString = configuration.GetValue<string>("CallRecordsQueueConnection");
+                if (!string.IsNullOrWhiteSpace(connectionString))
+                    return new Azure.Storage.Queues.QueueServiceClient(connectionString);
+
+                var queueServiceUri = configuration.GetValue<string>("CallRecordsQueueConnection:queueServiceUri")
+                    ?? configuration.GetValue<string>("CallRecordsQueueConnection__queueServiceUri");
+                var credential = configuration.GetValue<string>("CallRecordsQueueConnection:credential")
+                    ?? configuration.GetValue<string>("CallRecordsQueueConnection__credential");
+
+                if (Uri.TryCreate(queueServiceUri, UriKind.Absolute, out var queueUri)
+                    && string.Equals(credential, "managedidentity", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Azure.Storage.Queues.QueueServiceClient(queueUri, new DefaultAzureCredential());
+                }
+
+                throw new ArgumentNullException(
+                    "CallRecordsQueueConnection",
+                    "Queue configuration is missing. Set either CallRecordsQueueConnection or CallRecordsQueueConnection__queueServiceUri with CallRecordsQueueConnection__credential=managedidentity.");
             });
         }
 
