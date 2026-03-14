@@ -1,0 +1,1807 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "6250529056655100639"
+    }
+  },
+  "parameters": {
+    "baseResourceName": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().name]",
+      "minLength": 3,
+      "maxLength": 24
+    },
+    "deploymentSize": {
+      "type": "string",
+      "defaultValue": "Production",
+      "allowedValues": [
+        "DevTest",
+        "Production",
+        "RestrictedProduction"
+      ]
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "The Azure region that's right for you. Not every resource is available in every region."
+      }
+    },
+    "gitRepoUrl": {
+      "type": "string",
+      "defaultValue": "https://github.com/Microsoft/CallRecordInsights.git",
+      "metadata": {
+        "description": "The URL to the git repository to deploy."
+      }
+    },
+    "gitBranch": {
+      "type": "string",
+      "defaultValue": "main",
+      "metadata": {
+        "description": "The branch of the git repository to deploy."
+      }
+    },
+    "tenantDomain": {
+      "type": "string",
+      "metadata": {
+        "description": "The domain of the tenant that will be monitored for Call Records."
+      }
+    },
+    "cosmosAccountName": {
+      "type": "string",
+      "defaultValue": "[format('{0}cdb', parameters('baseResourceName'))]",
+      "metadata": {
+        "description": "The name of the cosmos account to use."
+      }
+    },
+    "cosmosCallRecordsDatabaseName": {
+      "type": "string",
+      "defaultValue": "callrecordinsights",
+      "metadata": {
+        "description": "The name of the database to store call records in the cosmos account."
+      }
+    },
+    "cosmosCallRecordsContainerName": {
+      "type": "string",
+      "defaultValue": "records",
+      "metadata": {
+        "description": "The name of the container to store call records in the cosmos account."
+      }
+    },
+    "existingKustoClusterName": {
+      "type": "string",
+      "defaultValue": "NOEXISTINGKUSTOCLUSTER",
+      "metadata": {
+        "description": "The name of the existing Kusto cluster to use."
+      }
+    },
+    "kustoCallRecordsDatabaseName": {
+      "type": "string",
+      "defaultValue": "CallRecordInsights",
+      "metadata": {
+        "description": "The name of the database in the Kusto cluster."
+      }
+    },
+    "kustoCallRecordsTableName": {
+      "type": "string",
+      "defaultValue": "CallRecords",
+      "metadata": {
+        "description": "The name of the table to store processed call records in the Kusto cluster."
+      }
+    },
+    "graphChangeTrackingSPNObjectId": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "metadata": {
+        "description": "The GUID of the Graph Change Tracking Service Principal for the Subscription's tenant."
+      }
+    },
+    "useEventHubManagedIdentity": {
+      "type": "bool",
+      "defaultValue": false
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "kustoDeploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "deploymentType": {
+            "value": "[parameters('deploymentSize')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "databaseName": {
+            "value": "[parameters('kustoCallRecordsDatabaseName')]"
+          },
+          "existingKustoClusterName": {
+            "value": "[parameters('existingKustoClusterName')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "9101454898652234648"
+            }
+          },
+          "parameters": {
+            "clusterNamePrefix": {
+              "type": "string",
+              "defaultValue": "crinsights",
+              "metadata": {
+                "description": "The base name to use for the resources that will be provisioned."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Location for all resources."
+              }
+            },
+            "deploymentType": {
+              "type": "string",
+              "defaultValue": "Production",
+              "allowedValues": [
+                "Production",
+                "RestrictedProduction",
+                "DevTest"
+              ],
+              "metadata": {
+                "description": "The type of deployment. Production is a standard deployment. DevTest is a smaller deployment with no SLA."
+              }
+            },
+            "databaseName": {
+              "type": "string",
+              "defaultValue": "CallRecordInsights",
+              "metadata": {
+                "description": "The name of the Kusto database."
+              }
+            },
+            "existingKustoClusterName": {
+              "type": "string",
+              "defaultValue": "NOEXISTINGKUSTOCLUSTER",
+              "metadata": {
+                "description": "The name of the existing Kusto cluster to use."
+              }
+            },
+            "identity": {
+              "type": "string",
+              "defaultValue": "SystemAssigned",
+              "metadata": {
+                "description": "The type of identity to assign to the cluster. SystemAssigned is the default. None will not assign an identity. UserAssigned will assign the identity specified in the identity parameter."
+              }
+            }
+          },
+          "variables": {
+            "isGovCloud": "[or(startsWith(parameters('location'), 'usgov'), startsWith(parameters('location'), 'usdod'))]",
+            "clusterConfigurations": {
+              "DevTest": {
+                "cluster": {
+                  "sku": {
+                    "name": "[if(variables('isGovCloud'), 'Dev(No SLA)_Standard_D11_v2', 'Dev(No SLA)_Standard_E2a_v4')]",
+                    "tier": "Basic",
+                    "capacity": 1
+                  },
+                  "properties": {
+                    "enableAutoStop": true
+                  }
+                },
+                "database": {
+                  "properties": {
+                    "softDeletePeriod": "P180D",
+                    "hotCachePeriod": "P7D"
+                  }
+                }
+              },
+              "Production": {
+                "cluster": {
+                  "sku": {
+                    "name": "[if(variables('isGovCloud'), 'Standard_D11_v2', 'Standard_E2ads_v5')]",
+                    "tier": "Standard",
+                    "capacity": 2
+                  },
+                  "properties": {}
+                },
+                "database": {
+                  "properties": {
+                    "softDeletePeriod": "P365D",
+                    "hotCachePeriod": "P31D"
+                  }
+                }
+              },
+              "RestrictedProduction": {
+                "cluster": {
+                  "sku": {
+                    "name": "[if(variables('isGovCloud'), 'Standard_D11_v2', 'Standard_E2ads_v5')]",
+                    "tier": "Standard",
+                    "capacity": 2
+                  },
+                  "properties": {}
+                },
+                "database": {
+                  "properties": {
+                    "softDeletePeriod": "P365D",
+                    "hotCachePeriod": "P31D"
+                  }
+                }
+              }
+            },
+            "clusterIdentity": "[if(or(equals(parameters('identity'), 'SystemAssigned'), equals(parameters('identity'), 'None')), createObject('type', parameters('identity')), createObject('type', 'UserAssigned', 'userAssignedIdentities', createObject(format('{0}', parameters('identity')), createObject())))]",
+            "input": "[parameters('clusterNamePrefix')]",
+            "validChars": [
+              "alpha",
+              "numeric"
+            ],
+            "validFirstChars": [
+              "alpha",
+              "numeric"
+            ],
+            "validEndChars": [
+              "alpha",
+              "numeric"
+            ],
+            "maxLength": 24,
+            "upper": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E",
+              "F",
+              "G",
+              "H",
+              "I",
+              "J",
+              "K",
+              "L",
+              "M",
+              "N",
+              "O",
+              "P",
+              "Q",
+              "R",
+              "S",
+              "T",
+              "U",
+              "V",
+              "W",
+              "X",
+              "Y",
+              "Z"
+            ],
+            "lower": [
+              "a",
+              "b",
+              "c",
+              "d",
+              "e",
+              "f",
+              "g",
+              "h",
+              "i",
+              "j",
+              "k",
+              "l",
+              "m",
+              "n",
+              "o",
+              "p",
+              "q",
+              "r",
+              "s",
+              "t",
+              "u",
+              "v",
+              "w",
+              "x",
+              "y",
+              "z"
+            ],
+            "charSets": {
+              "upper": "[variables('upper')]",
+              "lower": "[variables('lower')]",
+              "alpha": "[concat(variables('upper'), variables('lower'))]",
+              "numeric": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "hyphen": [
+                "-"
+              ],
+              "underscore": [
+                "_"
+              ],
+              "period": [
+                "."
+              ]
+            },
+            "validCharSet": "[flatten(map(variables('validChars'), lambda('s', variables('charSets')[lambdaVariables('s')])))]",
+            "validFirstCharSet": "[flatten(map(variables('validFirstChars'), lambda('s', variables('charSets')[lambdaVariables('s')])))]",
+            "validEndCharSet": "[flatten(map(variables('validEndChars'), lambda('s', variables('charSets')[lambdaVariables('s')])))]",
+            "caseShifted": "[toLower(format('{0}{1}', variables('input'), uniqueString(resourceGroup().id)))]",
+            "cleanedUnique": "[reduce(map(range(0, sub(length(variables('caseShifted')), 1)), lambda('i', substring(variables('caseShifted'), lambdaVariables('i'), 1))), '', lambda('c', 'n', format('{0}{1}', lambdaVariables('c'), if(and(equals(lambdaVariables('c'), '-'), equals(lambdaVariables('n'), '-')), '', lambdaVariables('n')))))]",
+            "indexedChars": "[items(toObject(range(0, length(variables('cleanedUnique'))), lambda('i', format('{0}', lambdaVariables('i'))), lambda('i', substring(variables('cleanedUnique'), lambdaVariables('i'), 1))))]",
+            "firstIndexedChar": "[sort(filter(variables('indexedChars'), lambda('c', contains(variables('validFirstCharSet'), lambdaVariables('c').value))), lambda('c', 'n', less(int(lambdaVariables('c').key), int(lambdaVariables('n').key))))[0]]",
+            "endIndexedChar": "[sort(filter(variables('indexedChars'), lambda('c', and(and(greater(int(lambdaVariables('c').key), int(variables('firstIndexedChar').key)), and(greater(variables('maxLength'), -1), less(int(lambdaVariables('c').key), add(int(variables('firstIndexedChar').key), variables('maxLength'))))), contains(variables('validEndCharSet'), lambdaVariables('c').value)))), lambda('c', 'n', greater(int(lambdaVariables('c').key), int(lambdaVariables('n').key))))[0]]",
+            "validIndexedChars": "[sort(filter(variables('indexedChars'), lambda('c', and(and(greater(int(lambdaVariables('c').key), int(variables('firstIndexedChar').key)), less(int(lambdaVariables('c').key), int(variables('endIndexedChar').key))), contains(variables('validCharSet'), lambdaVariables('c').value)))), lambda('c', 'n', less(int(lambdaVariables('c').key), int(lambdaVariables('n').key))))]",
+            "clusterResourceName": "[format('{0}{1}{2}', variables('firstIndexedChar').value, reduce(variables('validIndexedChars'), '', lambda('c', 'n', format('{0}{1}', lambdaVariables('c'), lambdaVariables('n').value))), variables('endIndexedChar').value)]",
+            "existing": "[and(not(empty(trim(parameters('existingKustoClusterName')))), not(equals(parameters('existingKustoClusterName'), 'NOEXISTINGKUSTOCLUSTER')))]"
+          },
+          "resources": [
+            {
+              "condition": "[not(variables('existing'))]",
+              "type": "Microsoft.Kusto/clusters/databases",
+              "apiVersion": "2023-08-15",
+              "name": "[format('{0}/{1}', variables('clusterResourceName'), parameters('databaseName'))]",
+              "location": "[parameters('location')]",
+              "properties": "[variables('clusterConfigurations')[parameters('deploymentType')].database.properties]",
+              "kind": "ReadWrite",
+              "dependsOn": [
+                "[resourceId('Microsoft.Kusto/clusters', variables('clusterResourceName'))]"
+              ]
+            },
+            {
+              "condition": "[variables('existing')]",
+              "type": "Microsoft.Kusto/clusters/databases",
+              "apiVersion": "2023-08-15",
+              "name": "[format('{0}/{1}', if(variables('existing'), parameters('existingKustoClusterName'), 'bogus'), parameters('databaseName'))]",
+              "location": "[parameters('location')]",
+              "properties": "[variables('clusterConfigurations')[parameters('deploymentType')].database.properties]",
+              "kind": "ReadWrite"
+            },
+            {
+              "condition": "[not(variables('existing'))]",
+              "type": "Microsoft.Kusto/clusters",
+              "apiVersion": "2023-08-15",
+              "name": "[variables('clusterResourceName')]",
+              "location": "[parameters('location')]",
+              "sku": "[variables('clusterConfigurations')[parameters('deploymentType')].cluster.sku]",
+              "identity": "[variables('clusterIdentity')]",
+              "properties": "[variables('clusterConfigurations')[parameters('deploymentType')].cluster.properties]"
+            }
+          ],
+          "outputs": {
+            "Name": {
+              "type": "string",
+              "value": "[if(variables('existing'), parameters('existingKustoClusterName'), variables('clusterResourceName'))]"
+            },
+            "Uri": {
+              "type": "string",
+              "value": "[if(variables('existing'), reference(resourceId('Microsoft.Kusto/clusters', parameters('existingKustoClusterName')), '2023-08-15').uri, reference(resourceId('Microsoft.Kusto/clusters', variables('clusterResourceName')), '2023-08-15').uri)]"
+            },
+            "DatabaseName": {
+              "type": "string",
+              "value": "[if(variables('existing'), format('{0}/{1}', if(variables('existing'), parameters('existingKustoClusterName'), 'bogus'), parameters('databaseName')), parameters('databaseName'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "cosmosDeploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseResourceName": {
+            "value": "[parameters('baseResourceName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "daysToRetainData": {
+            "value": 30
+          },
+          "accountName": {
+            "value": "[parameters('cosmosAccountName')]"
+          },
+          "databaseName": {
+            "value": "[parameters('cosmosCallRecordsDatabaseName')]"
+          },
+          "containerName": {
+            "value": "[parameters('cosmosCallRecordsContainerName')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "5629582817180331891"
+            }
+          },
+          "parameters": {
+            "baseResourceName": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().name]",
+              "minLength": 3,
+              "maxLength": 35,
+              "metadata": {
+                "description": "The base name to use for the resources that will be provisioned."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "The location to create the resources in."
+              }
+            },
+            "daysToRetainData": {
+              "type": "int",
+              "defaultValue": 30,
+              "minValue": 1,
+              "maxValue": 365,
+              "metadata": {
+                "description": "The number of days to retain data in the Cosmos DB container."
+              }
+            },
+            "accountName": {
+              "type": "string",
+              "defaultValue": "[format('{0}cdb', parameters('baseResourceName'))]",
+              "minLength": 3,
+              "maxLength": 44,
+              "metadata": {
+                "description": "The name of the Cosmos DB account to create. Must be between 3 and 44 characters long, and contain only lowercase letters, numbers, and hyphens and start with a letter or number."
+              }
+            },
+            "databaseName": {
+              "type": "string",
+              "defaultValue": "callrecordinsights",
+              "metadata": {
+                "description": "The name of the Cosmos DB database to create."
+              }
+            },
+            "containerName": {
+              "type": "string",
+              "defaultValue": "records",
+              "metadata": {
+                "description": "The name of the Cosmos DB container to create."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+              "apiVersion": "2023-09-15",
+              "name": "[format('{0}/{1}/{2}', toLower(parameters('accountName')), parameters('databaseName'), parameters('containerName'))]",
+              "properties": {
+                "resource": {
+                  "id": "[parameters('containerName')]",
+                  "partitionKey": {
+                    "paths": [
+                      "/CallRecordTenantIdContext",
+                      "/CallId"
+                    ],
+                    "kind": "MultiHash",
+                    "version": 2
+                  },
+                  "indexingPolicy": {
+                    "automatic": true,
+                    "indexingMode": "consistent",
+                    "includedPaths": [
+                      {
+                        "path": "/CallRecordTenantIdContext/?"
+                      },
+                      {
+                        "path": "/CallId/?"
+                      },
+                      {
+                        "path": "/LastModifiedDateTimeOffset/?"
+                      }
+                    ],
+                    "excludedPaths": [
+                      {
+                        "path": "/*"
+                      }
+                    ],
+                    "compositeIndexes": [
+                      [
+                        {
+                          "path": "/CallRecordTenantIdContext",
+                          "order": "descending"
+                        },
+                        {
+                          "path": "/CallId",
+                          "order": "descending"
+                        },
+                        {
+                          "path": "/LastModifiedDateTimeOffset",
+                          "order": "descending"
+                        }
+                      ]
+                    ]
+                  },
+                  "defaultTtl": "[mul(mul(mul(parameters('daysToRetainData'), 24), 60), 60)]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', toLower(parameters('accountName')), parameters('databaseName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+              "apiVersion": "2023-09-15",
+              "name": "[format('{0}/{1}', toLower(parameters('accountName')), parameters('databaseName'))]",
+              "properties": {
+                "resource": {
+                  "id": "[parameters('databaseName')]"
+                },
+                "options": {
+                  "autoscaleSettings": {
+                    "maxThroughput": 1000
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts', toLower(parameters('accountName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts",
+              "apiVersion": "2023-09-15",
+              "name": "[toLower(parameters('accountName'))]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "databaseAccountOfferType": "Standard",
+                "locations": [
+                  {
+                    "locationName": "[parameters('location')]",
+                    "failoverPriority": 0,
+                    "isZoneRedundant": false
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "cosmosDbAccountName": {
+              "type": "string",
+              "value": "[toLower(parameters('accountName'))]"
+            },
+            "databaseName": {
+              "type": "string",
+              "value": "[parameters('databaseName')]"
+            },
+            "containerName": {
+              "type": "string",
+              "value": "[parameters('containerName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "functionDeploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "graphChangeTrackingAppObjectId": {
+            "value": "[parameters('graphChangeTrackingSPNObjectId')]"
+          },
+          "teamsTenantDomainName": {
+            "value": "[parameters('tenantDomain')]"
+          },
+          "baseResourceName": {
+            "value": "[parameters('baseResourceName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "deploymentType": {
+            "value": "[parameters('deploymentSize')]"
+          },
+          "cosmosAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'cosmosDeploy'), '2025-04-01').outputs.cosmosDbAccountName.value]"
+          },
+          "callRecordsDatabaseName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'cosmosDeploy'), '2025-04-01').outputs.databaseName.value]"
+          },
+          "callRecordsContainerName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'cosmosDeploy'), '2025-04-01').outputs.containerName.value]"
+          },
+          "useGraphEventHubManagedIdentity": {
+            "value": "[parameters('useEventHubManagedIdentity')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "4561757347526475827"
+            }
+          },
+          "parameters": {
+            "graphChangeTrackingAppObjectId": {
+              "type": "string",
+              "minLength": 36,
+              "maxLength": 36,
+              "metadata": {
+                "description": "The object id of the Service Principal for the Graph Change Tracking Application."
+              }
+            },
+            "teamsTenantDomainName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the tenant to monitor"
+              }
+            },
+            "baseResourceName": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().name]",
+              "minLength": 3,
+              "maxLength": 35,
+              "metadata": {
+                "description": "The base name to use for the resources that will be provisioned. It must start with a letter and contain only letters and numbers. It must be globally unique."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Location for all resources."
+              }
+            },
+            "deploymentType": {
+              "type": "string",
+              "defaultValue": "Production",
+              "allowedValues": [
+                "Production",
+                "RestrictedProduction",
+                "DevTest"
+              ],
+              "metadata": {
+                "description": "The type of deployment. Production is a standard deployment. DevTest is a smaller deployment with no SLA."
+              }
+            },
+            "cosmosAccountName": {
+              "type": "string",
+              "defaultValue": "[format('{0}cdb', parameters('baseResourceName'))]",
+              "minLength": 3,
+              "maxLength": 44,
+              "metadata": {
+                "description": "The name of the Cosmos DB account to create. Must be between 3 and 44 characters long, and contain only lowercase letters, numbers, and hyphens and start with a letter or number."
+              }
+            },
+            "callRecordsDatabaseName": {
+              "type": "string",
+              "defaultValue": "callrecordinsights",
+              "metadata": {
+                "description": "The name of the cosmos database that contains the processed call records table."
+              }
+            },
+            "callRecordsContainerName": {
+              "type": "string",
+              "defaultValue": "records",
+              "metadata": {
+                "description": "The name of the cosmos container that contains the processed call records."
+              }
+            },
+            "useSeparateKeyVaultForGraph": {
+              "type": "bool",
+              "defaultValue": "[not(equals(parameters('deploymentType'), 'DevTest'))]"
+            },
+            "useGraphEventHubManagedIdentity": {
+              "type": "bool",
+              "defaultValue": false
+            }
+          },
+          "variables": {
+            "$fxv#0": {
+              "AzureCloud": [
+                "52.159.23.209/32",
+                "52.159.17.84/32",
+                "13.78.204.0/32",
+                "52.148.24.136/32",
+                "52.148.27.39/32",
+                "52.147.213.251/32",
+                "52.147.213.181/32",
+                "20.127.53.125/32",
+                "40.76.162.99/32",
+                "40.76.162.42/32",
+                "70.37.95.92/32",
+                "70.37.95.11/32",
+                "70.37.92.195/32",
+                "70.37.93.191/32",
+                "70.37.90.219/32",
+                "20.9.36.45/32",
+                "20.9.35.166/32",
+                "20.9.36.128/32",
+                "20.9.37.73/32",
+                "20.9.37.76/32",
+                "20.96.21.67/32",
+                "20.69.245.215/32",
+                "104.46.117.15/32",
+                "20.96.21.98/32",
+                "20.96.21.115/32",
+                "137.135.11.161/32",
+                "137.135.11.116/32",
+                "20.253.156.113/32",
+                "137.135.11.222/32",
+                "137.135.11.250/32",
+                "52.159.107.50/32",
+                "52.159.107.4/32",
+                "52.159.124.33/32",
+                "52.159.109.205/32",
+                "52.159.102.72/32",
+                "20.98.68.182/32",
+                "20.98.68.57/32",
+                "20.98.68.200/32",
+                "20.98.68.203/32",
+                "20.98.68.218/32",
+                "20.171.81.121/32",
+                "20.25.189.138/32",
+                "20.171.82.192/32",
+                "20.171.83.146/32",
+                "20.171.83.157/32",
+                "52.142.114.29/32",
+                "52.142.115.31/32",
+                "20.223.139.245/32",
+                "51.104.159.213/32",
+                "51.104.159.181/32",
+                "51.124.75.43/32",
+                "51.124.73.177/32",
+                "104.40.209.182/32",
+                "51.138.90.7/32",
+                "51.138.90.52/32",
+                "20.199.102.157/32",
+                "20.199.102.73/32",
+                "20.216.150.67/32",
+                "20.111.9.46/32",
+                "20.111.9.77/32",
+                "13.87.81.123/32",
+                "13.87.81.35/32",
+                "20.90.99.1/32",
+                "13.87.81.133/32",
+                "13.87.81.141/32",
+                "20.91.212.211/32",
+                "20.91.212.136/32",
+                "20.91.213.57/32",
+                "20.91.208.88/32",
+                "20.91.209.147/32",
+                "20.44.210.83/32",
+                "20.44.210.146/32",
+                "20.212.153.162/32",
+                "52.148.115.48/32",
+                "52.148.114.238/32",
+                "40.80.232.177/32",
+                "40.80.232.118/32",
+                "52.231.196.24/32",
+                "40.80.233.14/32",
+                "40.80.239.196/32",
+                "20.48.12.75/32",
+                "20.48.11.201/32",
+                "20.89.108.161/32",
+                "20.48.14.35/32",
+                "20.48.15.147/32",
+                "104.215.13.23/32",
+                "104.215.6.169/32",
+                "20.89.240.165/32",
+                "104.215.18.55/32",
+                "104.215.12.254/32",
+                "20.20.32.0/19",
+                "20.190.128.0/18",
+                "20.231.128.0/19",
+                "40.126.0.0/18"
+              ],
+              "AzureUSGovernment": [
+                "52.244.33.45/32",
+                "52.244.35.174/32",
+                "52.243.157.104/32",
+                "52.243.157.105/32",
+                "52.182.25.254/32",
+                "52.182.25.110/32",
+                "52.181.25.67/32",
+                "52.181.25.66/32",
+                "52.244.111.156/32",
+                "52.244.111.170/32",
+                "52.243.147.249/32",
+                "52.243.148.19/32",
+                "52.182.32.51/32",
+                "52.182.32.143/32",
+                "52.181.24.199/32",
+                "52.181.24.220/32",
+                "20.140.232.0/23",
+                "52.126.194.0/23"
+              ],
+              "AzureChinaCloud": [
+                "42.159.72.35/32",
+                "42.159.72.47/32",
+                "42.159.180.55/32",
+                "42.159.180.56/32",
+                "40.125.138.23/32",
+                "40.125.136.69/32",
+                "40.72.155.199/32",
+                "40.72.155.216/32",
+                "40.72.70.0/23",
+                "52.130.2.32/27",
+                "52.130.3.64/27",
+                "52.130.17.192/27",
+                "52.130.18.32/27"
+              ]
+            },
+            "tenantId": "[subscription().tenantId]",
+            "tenantDomain": "[parameters('teamsTenantDomainName')]",
+            "storageAccountName": "[format('callq{0}', uniqueString(toLower(parameters('baseResourceName')), toLower(variables('tenantId'))))]",
+            "downloadQueueName": "[format('{0}download', toLower(parameters('callRecordsDatabaseName')))]",
+            "keyvaultName": "[if(greater(length(format('kv{0}', parameters('baseResourceName'))), 24), substring(format('kv{0}', parameters('baseResourceName')), 0, 24), format('kv{0}', parameters('baseResourceName')))]",
+            "graphKeyVaultName": "[format('g{0}', if(greater(length(variables('keyvaultName')), 23), substring(variables('keyvaultName'), 0, 23), variables('keyvaultName')))]",
+            "configurations": {
+              "DevTest": {
+                "serverfarm": {
+                  "sku": {
+                    "name": "Y1"
+                  }
+                },
+                "storage": {
+                  "sku": {
+                    "name": "Standard_LRS"
+                  },
+                  "properties": {
+                    "supportsHttpsTrafficOnly": true,
+                    "allowBlobPublicAccess": false,
+                    "minimumTlsVersion": "TLS1_2"
+                  }
+                },
+                "eventHub": {
+                  "sku": {
+                    "name": "Basic"
+                  },
+                  "properties": {
+                    "disableLocalAuth": "[parameters('useGraphEventHubManagedIdentity')]"
+                  },
+                  "eventhubs": {
+                    "properties": {
+                      "messageRetentionInDays": 1
+                    }
+                  }
+                },
+                "functionApp": {
+                  "identity": {
+                    "type": "SystemAssigned"
+                  },
+                  "properties": {
+                    "clientAffinityEnabled": false,
+                    "httpsOnly": true,
+                    "siteConfig": {
+                      "alwaysOn": false,
+                      "netFrameworkVersion": "v10.0",
+                      "ftpsState": "Disabled"
+                    }
+                  }
+                },
+                "keyvault": {
+                  "properties": {
+                    "tenantId": "[subscription().tenantId]",
+                    "publicNetworkAccess": "Enabled",
+                    "enableRbacAuthorization": true,
+                    "sku": {
+                      "name": "standard",
+                      "family": "A"
+                    }
+                  }
+                }
+              },
+              "Production": {
+                "serverfarm": {
+                  "sku": {
+                    "name": "Y1"
+                  }
+                },
+                "storage": {
+                  "sku": {
+                    "name": "Standard_GRS"
+                  },
+                  "properties": {
+                    "supportsHttpsTrafficOnly": true,
+                    "allowBlobPublicAccess": false,
+                    "minimumTlsVersion": "TLS1_2"
+                  }
+                },
+                "eventHub": {
+                  "sku": {
+                    "name": "Basic"
+                  },
+                  "properties": {
+                    "disableLocalAuth": "[parameters('useGraphEventHubManagedIdentity')]"
+                  },
+                  "eventhubs": {
+                    "properties": {
+                      "messageRetentionInDays": 1
+                    }
+                  }
+                },
+                "functionApp": {
+                  "identity": {
+                    "type": "SystemAssigned"
+                  },
+                  "properties": {
+                    "clientAffinityEnabled": false,
+                    "httpsOnly": true,
+                    "siteConfig": {
+                      "alwaysOn": false,
+                      "netFrameworkVersion": "v10.0",
+                      "ftpsState": "Disabled"
+                    }
+                  }
+                },
+                "keyvault": {
+                  "properties": {
+                    "tenantId": "[subscription().tenantId]",
+                    "publicNetworkAccess": "Enabled",
+                    "enableRbacAuthorization": true,
+                    "sku": {
+                      "name": "standard",
+                      "family": "A"
+                    }
+                  }
+                }
+              },
+              "RestrictedProduction": {
+                "serverfarm": {
+                  "sku": {
+                    "name": "EP1"
+                  }
+                },
+                "storage": {
+                  "sku": {
+                    "name": "Standard_GRS"
+                  },
+                  "properties": {
+                    "supportsHttpsTrafficOnly": true,
+                    "allowBlobPublicAccess": false,
+                    "minimumTlsVersion": "TLS1_2",
+                    "networkAcls": {
+                      "bypass": "AzureServices",
+                      "defaultAction": "Deny",
+                      "ipRules": [],
+                      "virtualNetworkRules": [
+                        {
+                          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]",
+                          "action": "Allow"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "eventHub": {
+                  "sku": {
+                    "name": "Standard"
+                  },
+                  "properties": {
+                    "disableLocalAuth": "[parameters('useGraphEventHubManagedIdentity')]"
+                  }
+                },
+                "functionApp": {
+                  "identity": {
+                    "type": "SystemAssigned"
+                  },
+                  "properties": {
+                    "clientAffinityEnabled": false,
+                    "httpsOnly": true,
+                    "siteConfig": {
+                      "alwaysOn": false,
+                      "netFrameworkVersion": "v10.0",
+                      "ftpsState": "Disabled"
+                    },
+                    "virtualNetworkSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+                  }
+                },
+                "keyvault": {
+                  "properties": {
+                    "tenantId": "[subscription().tenantId]",
+                    "publicNetworkAccess": "Enabled",
+                    "enableRbacAuthorization": true,
+                    "sku": {
+                      "name": "standard",
+                      "family": "A"
+                    },
+                    "networkAcls": {
+                      "bypass": "AzureServices",
+                      "defaultAction": "Deny",
+                      "virtualNetworkRules": [
+                        {
+                          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+                        }
+                      ],
+                      "ipRules": "[if(parameters('useGraphEventHubManagedIdentity'), createArray(), map(variables('graphChangeNotificationSubnets')[environment().name], lambda('s', createObject('value', lambdaVariables('s')))))]"
+                    }
+                  }
+                }
+              },
+              "Custom": {}
+            },
+            "graphChangeNotificationSubnets": "[variables('$fxv#0')]",
+            "GraphEndpoints": {
+              "usgovvirginia": "graph.microsoft.us",
+              "usgovarizona": "graph.microsoft.us",
+              "usgovtexas": "graph.microsoft.us",
+              "usdodcentral": "dod-graph.microsoft.us",
+              "usdodeast": "dod-graph.microsoft.us"
+            },
+            "roleDefinitionId": {
+              "StorageAccount": {
+                "Contributor": "17d1049b-9a84-46fb-8f53-869881c3d3ab",
+                "Queue": {
+                  "Data": {
+                    "Contributor": "974c5e8b-45b9-4653-ba55-5f855dd0fb88"
+                  }
+                },
+                "Blob": {
+                  "Data": {
+                    "Owner": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b"
+                  }
+                }
+              },
+              "EventHubs": {
+                "Data": {
+                  "Sender": "2b629674-e913-4c01-ae53-ef4638d8f975",
+                  "Receiver": "a638d3c7-ab3a-418d-83e6-5f17a39d4fde"
+                }
+              },
+              "KeyVault": {
+                "Secrets": {
+                  "Officer": "b86a8fe4-44ce-4948-aee5-eccb2c155cd7",
+                  "User": "4633458b-17de-408a-b874-0445c86b69e6"
+                }
+              },
+              "CosmosDB": {
+                "Data": {
+                  "Contributor": "00000000-0000-0000-0000-000000000002"
+                }
+              }
+            },
+            "neededRoles": {
+              "functionApp": {
+                "StorageAccount": [
+                  "[variables('roleDefinitionId').StorageAccount.Contributor]",
+                  "[variables('roleDefinitionId').StorageAccount.Queue.Data.Contributor]",
+                  "[variables('roleDefinitionId').StorageAccount.Blob.Data.Owner]"
+                ],
+                "EventHubs": [
+                  "[variables('roleDefinitionId').EventHubs.Data.Receiver]"
+                ],
+                "KeyVault": [
+                  "[variables('roleDefinitionId').KeyVault.Secrets.Officer]"
+                ],
+                "CosmosDB": [
+                  "[variables('roleDefinitionId').CosmosDB.Data.Contributor]"
+                ]
+              },
+              "graphChangeTrackingApp": {
+                "EventHubs": "[if(parameters('useGraphEventHubManagedIdentity'), createArray(variables('roleDefinitionId').EventHubs.Data.Sender), createArray())]",
+                "KeyVault": "[if(not(parameters('useGraphEventHubManagedIdentity')), createArray(variables('roleDefinitionId').KeyVault.Secrets.User), createArray())]"
+              }
+            }
+          },
+          "resources": [
+            {
+              "condition": "[startsWith(parameters('deploymentType'), 'Restricted')]",
+              "type": "Microsoft.Network/virtualNetworks/subnets",
+              "apiVersion": "2022-11-01",
+              "name": "[format('{0}/{1}', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]",
+              "properties": {
+                "addressPrefix": "10.0.1.0/24",
+                "serviceEndpoints": [
+                  {
+                    "service": "Microsoft.KeyVault",
+                    "locations": [
+                      "[parameters('location')]"
+                    ]
+                  },
+                  {
+                    "service": "Microsoft.Storage",
+                    "locations": [
+                      "[parameters('location')]"
+                    ]
+                  },
+                  {
+                    "service": "Microsoft.Web",
+                    "locations": [
+                      "[parameters('location')]"
+                    ]
+                  },
+                  {
+                    "service": "Microsoft.EventHub",
+                    "locations": [
+                      "[parameters('location')]"
+                    ]
+                  }
+                ],
+                "delegations": [
+                  {
+                    "name": "fnapp-serverFarms",
+                    "properties": {
+                      "serviceName": "Microsoft.Web/serverFarms"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', format('vnet-{0}', resourceGroup().name))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/queueServices/queues",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', variables('downloadQueueName'))]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/queueServices', variables('storageAccountName'), 'default')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/queueServices",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}', variables('storageAccountName'), 'default')]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.EventHub/namespaces/eventhubs/authorizationRules",
+              "apiVersion": "2022-10-01-preview",
+              "name": "[format('{0}/{1}/{2}', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents', 'sender')]",
+              "properties": {
+                "rights": [
+                  "Send"
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents')]"
+              ]
+            },
+            {
+              "type": "Microsoft.EventHub/namespaces/eventhubs",
+              "apiVersion": "2022-10-01-preview",
+              "name": "[format('{0}/{1}', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents')]",
+              "properties": "[variables('configurations')[parameters('deploymentType')].eventHub.eventhubs.properties]",
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))))]",
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+              ]
+            },
+            {
+              "condition": "[startsWith(parameters('deploymentType'), 'Restricted')]",
+              "type": "Microsoft.EventHub/namespaces/networkRuleSets",
+              "apiVersion": "2022-10-01-preview",
+              "name": "[format('{0}/{1}', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'default')]",
+              "properties": {
+                "publicNetworkAccess": "SecuredByPerimeter",
+                "trustedServiceAccessEnabled": true,
+                "defaultAction": "Deny",
+                "virtualNetworkRules": [
+                  {
+                    "subnet": {
+                      "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+                    }
+                  }
+                ],
+                "ipRules": "[map(variables('graphChangeNotificationSubnets')[environment().name], lambda('s', createObject('action', 'Allow', 'ipMask', lambdaVariables('s'))))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))))]",
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/sites/config",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}', format('{0}-function', parameters('baseResourceName')), 'appsettings')]",
+              "properties": "[toObject(flatten(createArray(createArray(createObject('key', 'RenewSubscriptionScheduleCron', 'value', '0 0 */2 * * *'), createObject('key', 'CallRecordsQueueConnection__queueServiceUri', 'value', reference(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2022-09-01').primaryEndpoints.queue), createObject('key', 'CallRecordsQueueConnection__credential', 'value', 'managedidentity'), createObject('key', 'CallRecordsToDownloadQueueName', 'value', variables('downloadQueueName')), createObject('key', 'GraphSubscription__NotificationUrl', 'value', if(parameters('useGraphEventHubManagedIdentity'), format('EventHub:https://{0}/eventhubname/{1}', split(split(reference(resourceId('Microsoft.EventHub/namespaces', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName'))))))), '2022-10-01-preview').serviceBusEndpoint, '://')[1], ':')[0], 'graphevents'), if(parameters('useSeparateKeyVaultForGraph'), format('EventHub:{0}', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('graphKeyVaultName'), 'GraphEventHubConnectionString'), '2023-02-01').secretUri), format('EventHub:{0}', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyvaultName'), 'GraphEventHubConnectionString'), '2023-02-01').secretUri)))), createObject('key', 'GraphSubscription__Tenants', 'value', variables('tenantDomain')), createObject('key', 'CallRecordInsightsDb__EndpointUri', 'value', reference(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), '2023-09-15').documentEndpoint), createObject('key', 'CallRecordInsightsDb__DatabaseName', 'value', reference(resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', parameters('cosmosAccountName'), parameters('callRecordsDatabaseName')), '2023-09-15').resource.id), createObject('key', 'CallRecordInsightsDb__ProcessedContainerName', 'value', reference(resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', parameters('cosmosAccountName'), parameters('callRecordsDatabaseName'), parameters('callRecordsContainerName')), '2023-09-15').resource.id), createObject('key', 'GraphNotificationEventHubName', 'value', 'graphevents'), createObject('key', 'EventHubConnection__fullyQualifiedNamespace', 'value', split(split(reference(resourceId('Microsoft.EventHub/namespaces', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName'))))))), '2022-10-01-preview').serviceBusEndpoint, '://')[1], ':')[0]), createObject('key', 'EventHubConnection__credential', 'value', 'managedidentity'), createObject('key', 'AzureWebJobsSecretStorageType', 'value', 'keyvault'), createObject('key', 'AzureWebJobsSecretStorageKeyVaultUri', 'value', reference(resourceId('Microsoft.KeyVault/vaults', variables('keyvaultName')), '2023-02-01').vaultUri), createObject('key', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('key', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'dotnet-isolated'), createObject('key', 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING', 'value', format('@Microsoft.KeyVault(VaultName={0};SecretName={1})', variables('keyvaultName'), 'StorageAccountConnectionString')), createObject('key', 'WEBSITE_CONTENTSHARE', 'value', toLower(format('{0}-function', parameters('baseResourceName')))), createObject('key', 'SCM_COMMAND_IDLE_TIMEOUT', 'value', '1800')), if(contains(variables('GraphEndpoints'), parameters('location')), createArray(createObject('key', 'GraphSubscription__Endpoint', 'value', variables('GraphEndpoints')[parameters('location')]), createObject('key', 'AzureAd__Instance', 'value', environment().authentication.loginEndpoint), createObject('key', 'AzureWebJobsStorage__blobServiceUri', 'value', reference(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2022-09-01').primaryEndpoints.blob), createObject('key', 'AzureWebJobsStorage__queueServiceUri', 'value', reference(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2022-09-01').primaryEndpoints.queue), createObject('key', 'AzureWebJobsStorage__tableServiceUri', 'value', reference(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2022-09-01').primaryEndpoints.table)), createArray(createObject('key', 'AzureWebJobsStorage__accountName', 'value', variables('storageAccountName')))))), lambda('o', lambdaVariables('o').key), lambda('o', lambdaVariables('o').value))]",
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))))]",
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents')]",
+                "[resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName')))]",
+                "functionAppEventHubsRoleAssignment",
+                "functionAppKeyVaultRoleAssignment",
+                "functionAppStorageRoleAssignment",
+                "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('graphKeyVaultName'), 'GraphEventHubConnectionString')]",
+                "[resourceId('Microsoft.KeyVault/vaults', variables('keyvaultName'))]",
+                "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyvaultName'), 'GraphEventHubConnectionString')]",
+                "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyvaultName'), 'StorageAccountConnectionString')]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts/queueServices/queues', variables('storageAccountName'), 'default', variables('downloadQueueName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-02-01",
+              "name": "[format('{0}/{1}', variables('keyvaultName'), 'StorageAccountConnectionString')]",
+              "properties": {
+                "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storageAccountName'), environment().suffixes.storage, listkeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2022-09-01').keys[0].value)]",
+                "attributes": {
+                  "enabled": true
+                },
+                "contentType": "text/plain"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', variables('keyvaultName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+              ]
+            },
+            {
+              "condition": "[and(not(parameters('useGraphEventHubManagedIdentity')), not(parameters('useSeparateKeyVaultForGraph')))]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-02-01",
+              "name": "[format('{0}/{1}', variables('keyvaultName'), 'GraphEventHubConnectionString')]",
+              "properties": {
+                "value": "[listkeys(resourceId('Microsoft.EventHub/namespaces/eventhubs/authorizationRules', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents', 'sender'), '2022-10-01-preview').primaryConnectionString]",
+                "attributes": {
+                  "enabled": true
+                },
+                "contentType": "text/plain"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs/authorizationRules', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents', 'sender')]",
+                "[resourceId('Microsoft.KeyVault/vaults', variables('keyvaultName'))]"
+              ]
+            },
+            {
+              "condition": "[and(not(parameters('useGraphEventHubManagedIdentity')), parameters('useSeparateKeyVaultForGraph'))]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2023-02-01",
+              "name": "[format('{0}/{1}', variables('graphKeyVaultName'), 'GraphEventHubConnectionString')]",
+              "properties": {
+                "value": "[listkeys(resourceId('Microsoft.EventHub/namespaces/eventhubs/authorizationRules', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents', 'sender'), '2022-10-01-preview').primaryConnectionString]",
+                "attributes": {
+                  "enabled": true
+                },
+                "contentType": "text/plain"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs/authorizationRules', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents', 'sender')]",
+                "[resourceId('Microsoft.KeyVault/vaults', variables('graphKeyVaultName'))]"
+              ]
+            },
+            {
+              "condition": "[startsWith(parameters('deploymentType'), 'Restricted')]",
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2022-11-01",
+              "name": "[format('vnet-{0}', resourceGroup().name)]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "10.0.0.0/16"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2022-09-01",
+              "name": "[variables('storageAccountName')]",
+              "location": "[parameters('location')]",
+              "kind": "Storage",
+              "sku": "[variables('configurations')[parameters('deploymentType')].storage.sku]",
+              "properties": "[variables('configurations')[parameters('deploymentType')].storage.properties]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+              ]
+            },
+            {
+              "type": "Microsoft.EventHub/namespaces",
+              "apiVersion": "2022-10-01-preview",
+              "name": "[if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName'))))))]",
+              "location": "[parameters('location')]",
+              "sku": "[variables('configurations')[parameters('deploymentType')].eventHub.sku]",
+              "properties": "[variables('configurations')[parameters('deploymentType')].eventHub.properties]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2022-09-01",
+              "name": "[parameters('baseResourceName')]",
+              "location": "[parameters('location')]",
+              "sku": "[variables('configurations')[parameters('deploymentType')].serverfarm.sku]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}-function', parameters('baseResourceName'))]",
+              "location": "[parameters('location')]",
+              "kind": "functionapp",
+              "identity": "[variables('configurations')[parameters('deploymentType')].functionApp.identity]",
+              "properties": "[variables('configurations')[parameters('deploymentType')].functionApp.properties]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+              ]
+            },
+            {
+              "type": "Microsoft.KeyVault/vaults",
+              "apiVersion": "2023-02-01",
+              "name": "[variables('keyvaultName')]",
+              "location": "[parameters('location')]",
+              "properties": "[variables('configurations')[parameters('deploymentType')].keyvault.properties]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+              ]
+            },
+            {
+              "condition": "[and(not(parameters('useGraphEventHubManagedIdentity')), parameters('useSeparateKeyVaultForGraph'))]",
+              "type": "Microsoft.KeyVault/vaults",
+              "apiVersion": "2023-02-01",
+              "name": "[variables('graphKeyVaultName')]",
+              "location": "[parameters('location')]",
+              "properties": "[variables('configurations')[parameters('deploymentType')].keyvault.properties]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet-{0}', resourceGroup().name), 'fnapp-subnet')]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "functionAppStorageRoleAssignment",
+                "count": "[length(variables('neededRoles').functionApp.StorageAccount)]"
+              },
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Storage/storageAccounts/{0}', variables('storageAccountName'))]",
+              "name": "[guid(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), variables('neededRoles').functionApp.StorageAccount[copyIndex()], resourceGroup().id)]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('neededRoles').functionApp.StorageAccount[copyIndex()])]",
+                "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), '2022-09-01', 'full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName')))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "functionAppEventHubsRoleAssignment",
+                "count": "[length(variables('neededRoles').functionApp.EventHubs)]"
+              },
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.EventHub/namespaces/{0}/eventhubs/{1}', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents')]",
+              "name": "[guid(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), variables('neededRoles').functionApp.EventHubs[copyIndex()], resourceGroup().id)]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('neededRoles').functionApp.EventHubs[copyIndex()])]",
+                "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), '2022-09-01', 'full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents')]",
+                "[resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName')))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "functionAppKeyVaultRoleAssignment",
+                "count": "[length(variables('neededRoles').functionApp.KeyVault)]"
+              },
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.KeyVault/vaults/{0}', variables('keyvaultName'))]",
+              "name": "[guid(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), variables('neededRoles').functionApp.KeyVault[copyIndex()], resourceGroup().id)]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('neededRoles').functionApp.KeyVault[copyIndex()])]",
+                "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), '2022-09-01', 'full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName')))]",
+                "[resourceId('Microsoft.KeyVault/vaults', variables('keyvaultName'))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "functionAppCosmosDBRoleAssignment",
+                "count": "[length(variables('neededRoles').functionApp.CosmosDB)]"
+              },
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+              "apiVersion": "2023-09-15",
+              "name": "[format('{0}/{1}', parameters('cosmosAccountName'), guid(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), variables('neededRoles').functionApp.CosmosDB[copyIndex()], resourceGroup().id))]",
+              "properties": {
+                "roleDefinitionId": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', parameters('cosmosAccountName'), variables('neededRoles').functionApp.CosmosDB[copyIndex()])]",
+                "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), '2022-09-01', 'full').identity.principalId]",
+                "scope": "[replace(resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', parameters('cosmosAccountName'), parameters('callRecordsDatabaseName')), '/sqlDatabases/', '/dbs/')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName')))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "graphChangeTrackingAppRoleAssignment",
+                "count": "[length(variables('neededRoles').graphChangeTrackingApp.EventHubs)]"
+              },
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.EventHub/namespaces/{0}/eventhubs/{1}', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents')]",
+              "name": "[guid(parameters('graphChangeTrackingAppObjectId'), variables('neededRoles').graphChangeTrackingApp.EventHubs[copyIndex()], resourceGroup().id)]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('neededRoles').graphChangeTrackingApp.EventHubs[copyIndex()])]",
+                "principalId": "[parameters('graphChangeTrackingAppObjectId')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs', if(greaterOrEquals(length(parameters('baseResourceName')), 6), parameters('baseResourceName'), format('{0}{1}', parameters('baseResourceName'), substring(uniqueString(parameters('baseResourceName')), 0, sub(6, length(parameters('baseResourceName')))))), 'graphevents')]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "graphChangeTrackingAppKeyVaultRoleAssignmentSeparate",
+                "count": "[length(variables('neededRoles').graphChangeTrackingApp.KeyVault)]"
+              },
+              "condition": "[parameters('useSeparateKeyVaultForGraph')]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.KeyVault/vaults/{0}/secrets/{1}', variables('graphKeyVaultName'), 'GraphEventHubConnectionString')]",
+              "name": "[guid(parameters('graphChangeTrackingAppObjectId'), variables('neededRoles').graphChangeTrackingApp.KeyVault[copyIndex()], 'separate', resourceGroup().id)]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('neededRoles').graphChangeTrackingApp.KeyVault[copyIndex()])]",
+                "principalId": "[parameters('graphChangeTrackingAppObjectId')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('graphKeyVaultName'), 'GraphEventHubConnectionString')]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "graphChangeTrackingAppKeyVaultRoleAssignmentShared",
+                "count": "[length(variables('neededRoles').graphChangeTrackingApp.KeyVault)]"
+              },
+              "condition": "[not(parameters('useSeparateKeyVaultForGraph'))]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.KeyVault/vaults/{0}/secrets/{1}', variables('keyvaultName'), 'GraphEventHubConnectionString')]",
+              "name": "[guid(parameters('graphChangeTrackingAppObjectId'), variables('neededRoles').graphChangeTrackingApp.KeyVault[copyIndex()], 'shared', resourceGroup().id)]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('neededRoles').graphChangeTrackingApp.KeyVault[copyIndex()])]",
+                "principalId": "[parameters('graphChangeTrackingAppObjectId')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyvaultName'), 'GraphEventHubConnectionString')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "keyVaultName": {
+              "type": "string",
+              "value": "[variables('keyvaultName')]"
+            },
+            "appDomain": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), '2022-09-01').defaultHostName]"
+            },
+            "functionName": {
+              "type": "string",
+              "value": "[format('{0}-function', parameters('baseResourceName'))]"
+            },
+            "functionAppIdentity": {
+              "type": "object",
+              "value": "[reference(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), '2022-09-01', 'full').identity]"
+            },
+            "functionAppSubnetId": {
+              "type": "string",
+              "value": "[if(equals(parameters('deploymentType'), 'RestrictedProduction'), reference(resourceId('Microsoft.Web/sites', format('{0}-function', parameters('baseResourceName'))), '2022-09-01').virtualNetworkSubnetId, '')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'cosmosDeploy')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "kustoConfigure",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "clusterName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'kustoDeploy'), '2025-04-01').outputs.Name.value]"
+          },
+          "cosmosAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'cosmosDeploy'), '2025-04-01').outputs.cosmosDbAccountName.value]"
+          },
+          "callRecordsDatabaseName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'cosmosDeploy'), '2025-04-01').outputs.databaseName.value]"
+          },
+          "callRecordsContainerName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'cosmosDeploy'), '2025-04-01').outputs.containerName.value]"
+          },
+          "databaseName": {
+            "value": "[parameters('kustoCallRecordsDatabaseName')]"
+          },
+          "tableName": {
+            "value": "[parameters('kustoCallRecordsTableName')]"
+          },
+          "viewName": {
+            "value": "[format('{0}View', parameters('kustoCallRecordsTableName'))]"
+          },
+          "callRecordsFunctionName": {
+            "value": "[format('{0}Func', parameters('kustoCallRecordsTableName'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "8583197218830757585"
+            }
+          },
+          "parameters": {
+            "clusterName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the Kusto cluster."
+              }
+            },
+            "cosmosAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the Cosmos DB account that will be used to store the call records."
+              }
+            },
+            "callRecordsDatabaseName": {
+              "type": "string",
+              "defaultValue": "callrecordinsights",
+              "metadata": {
+                "description": "The name of the Cosmos DB database that will be used to store the call records."
+              }
+            },
+            "callRecordsContainerName": {
+              "type": "string",
+              "defaultValue": "records",
+              "metadata": {
+                "description": "The name of the Cosmos DB container that will be used to store the call records."
+              }
+            },
+            "databaseName": {
+              "type": "string",
+              "defaultValue": "CallRecordInsights",
+              "metadata": {
+                "description": "The name of the Kusto database."
+              }
+            },
+            "tableName": {
+              "type": "string",
+              "defaultValue": "CallRecords",
+              "metadata": {
+                "description": "The name of the table to create."
+              }
+            },
+            "viewName": {
+              "type": "string",
+              "defaultValue": "[format('{0}View', parameters('tableName'))]",
+              "metadata": {
+                "description": "The name of the view to create."
+              }
+            },
+            "callRecordsFunctionName": {
+              "type": "string",
+              "defaultValue": "[format('{0}Func', parameters('tableName'))]",
+              "metadata": {
+                "description": "The name of the get call records function to create."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]"
+            },
+            "updateTag": {
+              "type": "string",
+              "defaultValue": "[newGuid()]"
+            }
+          },
+          "variables": {
+            "$fxv#0": ".create table ##TABLE_NAME## (\n    CallRecordTenantIdContext: string,\n    CallId: guid, SessionId: guid, StreamId: string, StreamDirection: string, MediaLabel: string,\n    CallStartTime: datetime, CallEndTime: datetime, SessionStartTime: datetime, SessionEndTime: datetime,\n    LastModifiedDateTimeOffset: datetime, CallType: string, JoinWebUrl: string, VideoCodec: string,\n    AudioCodec: string, WasMediaBypassed: bool, FailureStage: string, FailureReason: string,\n    PacketUtilization: long, AverageBandwidthEstimate: long, AverageJitter: timespan, MaxJitter: timespan,\n    AverageRoundTripTime: timespan, MaxRoundTripTime: timespan, AverageAudioNetworkJitter: timespan,\n    MaxAudioNetworkJitter: timespan, AverageAudioDegradation: real, AveragePacketLossRate: real,\n    MaxPacketLossRate: real, PostForwardErrorCorrectionPacketLossRate: real,\n    AverageRatioOfConcealedSamples: real, MaxRatioOfConcealedSamples: real,\n    LowVideoProcessingCapabilityRatio: real, AverageVideoFrameRate: real, AverageReceivedFrameRate: real,\n    LowFrameRateRatio: real, AverageVideoPacketLossRate: real, AverageVideoFrameLossPercentage: real,\n    Organizer_UserDisplayName: string, Organizer_UserId: guid, Organizer_UserTenantId: guid,\n    Organizer_ApplicationInstanceDisplayName: string, Organizer_ApplicationInstanceId: guid,\n    Organizer_ApplicationInstanceTenantId: guid, Organizer_GuestDisplayName: string, Organizer_GuestId: guid,\n    Organizer_GuestTenantId: guid, Organizer_PhoneDisplayName: string, Organizer_PhoneId: string,\n    Organizer_PhoneTenantId: guid, Organizer_OnPremisesDisplayName: string, Organizer_OnPremisesId: guid,\n    Organizer_OnPremisesTenantId: guid, Organizer_EncryptedDisplayName: string, Organizer_EncryptedId: guid,\n    Organizer_EncryptedTenantId: guid, Organizer_AcsUserDisplayName: string, Organizer_AcsUserId: guid,\n    Organizer_AcsUserTenantId: guid, Organizer_SpoolUserDisplayName: string, Organizer_SpoolUserId: guid,\n    Organizer_SpoolUserTenantId: guid, Organizer_AcsApplicationInstanceDisplayName: string,\n    Organizer_AcsApplicationInstanceId: guid, Organizer_AcsApplicationInstanceTenantId: guid,\n    Organizer_SpoolApplicationInstanceDisplayName: string, Organizer_SpoolApplicationInstanceId: guid,\n    Organizer_SpoolApplicationInstanceTenantId: guid, Organizer_Id: string,\n    Organizer_UserPrincipalName: string, Organizer_DisplayName: string, Organizer_TenantId: guid,\n    Organizer_IdType: string, Callee_UserDisplayName: string, Callee_UserId: guid, Callee_UserTenantId: guid,\n    Callee_ApplicationInstanceDisplayName: string, Callee_ApplicationInstanceId: guid,\n    Callee_ApplicationInstanceTenantId: guid, Callee_GuestDisplayName: string, Callee_GuestId: guid,\n    Callee_GuestTenantId: guid, Callee_PhoneDisplayName: string, Callee_PhoneId: string,\n    Callee_PhoneTenantId: guid, Callee_OnPremisesDisplayName: string, Callee_OnPremisesId: guid,\n    Callee_OnPremisesTenantId: guid, Callee_EncryptedDisplayName: string, Callee_EncryptedId: guid,\n    Callee_EncryptedTenantId: guid, Callee_AcsUserDisplayName: string, Callee_AcsUserId: guid,\n    Callee_AcsUserTenantId: guid, Callee_SpoolUserDisplayName: string, Callee_SpoolUserId: guid,\n    Callee_SpoolUserTenantId: guid, Callee_AcsApplicationInstanceDisplayName: string,\n    Callee_AcsApplicationInstanceId: guid, Callee_AcsApplicationInstanceTenantId: guid,\n    Callee_SpoolApplicationInstanceDisplayName: string, Callee_SpoolApplicationInstanceId: guid,\n    Callee_SpoolApplicationInstanceTenantId: guid, Callee_Id: string, Callee_UserPrincipalName: string,\n    Callee_DisplayName: string, Callee_TenantId: guid, Callee_IdType: string, Callee_EndpointType: string,\n    Callee_ProductFamily: string, Callee_Platform: string, Callee_UserAgentHeaderValue: string,\n    Callee_ServiceRole: string, Callee_ApplicationVersion: string, Callee_AzureAdAppId: guid,\n    Callee_CommunicationServiceId: guid, Callee_ConnectionType: string, Callee_ReflexiveIPAddress: string,\n    Callee_Subnet: string, Callee_IpAddress: string, Callee_MacAddress: string, Callee_LinkSpeed: long,\n    Callee_NetworkTransportProtocol: string, Callee_Port: int, Callee_RelayIPAddress: string,\n    Callee_RelayPort: int, Callee_DnsSuffix: string, Callee_TraceRouteHops: string, Callee_BSSID: string,\n    Callee_WifiRadioType: string, Callee_WifiBand: string, Callee_WifiChannel: int,\n    Callee_WifiSignalStrength: int, Callee_WifiBatteryCharge: int, Callee_WifiMicrosoftDriver: string,\n    Callee_WifiMicrosoftDriverVersion: string, Callee_WifiVendorDriver: string,\n    Callee_WifiVendorDriverVersion: string, Callee_CaptureDeviceName: string,\n    Callee_CaptureDeviceDriver: string, Callee_RenderDeviceName: string, Callee_RenderDeviceDriver: string,\n    Callee_SentSignalLevel: real, Callee_SentNoiseLevel: real, Callee_MicGlitchRate: real,\n    Callee_ReceivedSignalLevel: real, Callee_ReceivedNoiseLevel: real, Callee_SpeakerGlitchRate: real,\n    Callee_HowlingEventCount: int, Callee_InitialSignalLevelRootMeanSquare: real,\n    Callee_DeviceGlitchEventRatio: real, Callee_DeviceClippingEventRatio: real,\n    Callee_LowSpeechToNoiseEventRatio: real, Callee_CaptureNotFunctioningEventRatio: real,\n    Callee_SentQualityEventRatio: real, Callee_LowSpeechLevelEventRatio: real,\n    Callee_RenderNotFunctioningEventRatio: real, Callee_ReceivedQualityEventRatio: real,\n    Callee_RenderZeroVolumeEventRatio: real, Callee_RenderMuteEventRatio: real,\n    Callee_CpuInsufficentEventRatio: real, Callee_DelayEventRatio: real, Callee_BandwidthLowEventRatio: real,\n    Callee_FeedbackRating: string, Callee_FeedbackText: string, Callee_FeedbackTokens: string,\n    Caller_UserDisplayName: string, Caller_UserId: guid, Caller_UserTenantId: guid,\n    Caller_ApplicationInstanceDisplayName: string, Caller_ApplicationInstanceId: guid,\n    Caller_ApplicationInstanceTenantId: guid, Caller_GuestDisplayName: string, Caller_GuestId: guid,\n    Caller_GuestTenantId: guid, Caller_PhoneDisplayName: string, Caller_PhoneId: string,\n    Caller_PhoneTenantId: guid, Caller_OnPremisesDisplayName: string, Caller_OnPremisesId: guid,\n    Caller_OnPremisesTenantId: guid, Caller_EncryptedDisplayName: string, Caller_EncryptedId: guid,\n    Caller_EncryptedTenantId: guid, Caller_AcsUserDisplayName: string, Caller_AcsUserId: guid,\n    Caller_AcsUserTenantId: guid, Caller_SpoolUserDisplayName: string, Caller_SpoolUserId: guid,\n    Caller_SpoolUserTenantId: guid, Caller_AcsApplicationInstanceDisplayName: string,\n    Caller_AcsApplicationInstanceId: guid, Caller_AcsApplicationInstanceTenantId: guid,\n    Caller_SpoolApplicationInstanceDisplayName: string, Caller_SpoolApplicationInstanceId: guid,\n    Caller_SpoolApplicationInstanceTenantId: guid, Caller_Id: string, Caller_UserPrincipalName: string,\n    Caller_DisplayName: string, Caller_TenantId: guid, Caller_IdType: string, Caller_EndpointType: string,\n    Caller_ProductFamily: string, Caller_Platform: string, Caller_UserAgentHeaderValue: string,\n    Caller_ServiceRole: string, Caller_ApplicationVersion: string, Caller_AzureAdAppId: guid,\n    Caller_CommunicationServiceId: guid, Caller_ConnectionType: string, Caller_ReflexiveIPAddress: string,\n    Caller_Subnet: string, Caller_IpAddress: string, Caller_MacAddress: string, Caller_LinkSpeed: long,\n    Caller_NetworkTransportProtocol: string, Caller_Port: int, Caller_RelayIPAddress: string,\n    Caller_RelayPort: int, Caller_DnsSuffix: string, Caller_TraceRouteHops: string, Caller_BSSID: string,\n    Caller_WifiRadioType: string, Caller_WifiBand: string, Caller_WifiChannel: int,\n    Caller_WifiSignalStrength: int, Caller_WifiBatteryCharge: int, Caller_WifiMicrosoftDriver: string,\n    Caller_WifiMicrosoftDriverVersion: string, Caller_WifiVendorDriver: string,\n    Caller_WifiVendorDriverVersion: string, Caller_CaptureDeviceName: string,\n    Caller_CaptureDeviceDriver: string, Caller_RenderDeviceName: string, Caller_RenderDeviceDriver: string,\n    Caller_SentSignalLevel: real, Caller_SentNoiseLevel: real, Caller_MicGlitchRate: real,\n    Caller_ReceivedSignalLevel: real, Caller_ReceivedNoiseLevel: real, Caller_SpeakerGlitchRate: real,\n    Caller_HowlingEventCount: int, Caller_InitialSignalLevelRootMeanSquare: real,\n    Caller_DeviceGlitchEventRatio: real, Caller_DeviceClippingEventRatio: real,\n    Caller_LowSpeechToNoiseEventRatio: real, Caller_CaptureNotFunctioningEventRatio: real,\n    Caller_SentQualityEventRatio: real, Caller_LowSpeechLevelEventRatio: real,\n    Caller_RenderNotFunctioningEventRatio: real, Caller_ReceivedQualityEventRatio: real,\n    Caller_RenderZeroVolumeEventRatio: real, Caller_RenderMuteEventRatio: real,\n    Caller_CpuInsufficentEventRatio: real, Caller_DelayEventRatio: real, Caller_BandwidthLowEventRatio: real,\n    Caller_FeedbackRating: string, Caller_FeedbackText: string, Caller_FeedbackTokens: string\n)",
+            "$fxv#1": ".create-or-alter function with (docstring = \"Audio Classifier\",folder = \"PTSScripts\") AudioClassifier(\n    AverageJitter: timespan, AverageRoundTripTime: timespan, AveragePacketLossRate: real, PacketUtilization: long) {\n    (AveragePacketLossRate > 0.1 or (AverageRoundTripTime/1ms) > 500 or (AverageJitter/1ms) > 30) and PacketUtilization > 1000\n}\n\n.create-or-alter function with (docstring = \"Video Classifier\",folder = \"PTSScripts\") VideoClassifier(\n    AverageVideoFrameLossPercentage: real, AverageVideoFrameRate: real, PostForwardErrorCorrectionPacketLossRate: real) { \n    iif(isnotempty(AverageVideoFrameLossPercentage), \n        AverageVideoFrameLossPercentage > 50,\n        iif(isnotempty(AverageVideoFrameRate), \n        AverageVideoFrameRate < 7,\n        PostForwardErrorCorrectionPacketLossRate > 0.15\n        )\n    )\n}\n\n.create-or-alter function with (docstring = \"VBSS Classifier\",folder = \"PTSScripts\") VBSSClassifier(\n    AverageVideoFrameLossPercentage: real, AverageVideoFrameRate: real, PostForwardErrorCorrectionPacketLossRate: real) {\n        iif(isnotempty(AverageVideoFrameLossPercentage),\n        AverageVideoFrameLossPercentage > 50,\n        iif(isnotempty(AverageVideoFrameRate),\n            AverageVideoFrameRate < 2,\n            PostForwardErrorCorrectionPacketLossRate > 0.15\n        )\n    )\n}\n\n.create-or-alter function with (folder = \"PTSScripts\") ApplyClassifiers(\n    T:(MediaLabel: string, AverageJitter: timespan, AverageRoundTripTime: timespan, AveragePacketLossRate: real, PacketUtilization: long,\n        AverageVideoFrameLossPercentage: real, AverageVideoFrameRate: real, PostForwardErrorCorrectionPacketLossRate: real)) {\n        T | extend IsClassifiedPoorStream = case( \n            MediaLabel has_cs 'audio',              AudioClassifier(AverageJitter, AverageRoundTripTime, AveragePacketLossRate, PacketUtilization),\n            MediaLabel has_cs 'applicationsharing', VBSSClassifier(AverageVideoFrameLossPercentage, AverageVideoFrameRate, PostForwardErrorCorrectionPacketLossRate),\n            MediaLabel has_cs 'video',              VideoClassifier(AverageVideoFrameLossPercentage, AverageVideoFrameRate, PostForwardErrorCorrectionPacketLossRate),\n            bool(null)\n        )\n}\n\n.create-or-alter materialized-view with (autoUpdateSchema = true, lookback = 30d) ##VIEW_NAME## on table ##TABLE_NAME## {\n  table('##TABLE_NAME##')\n  | summarize take_any(*) by CallRecordTenantIdContext, CallId, SessionId, StreamId, StreamDirection, MediaLabel\n}\n\n.create-or-alter function ##FUNCTION_NAME##(numDays: int = long(-1)) {\n  ApplyClassifiers(materialized_view('##VIEW_NAME##'))\n    | where numDays < 0 or CallEndTime >= ago(make_timespan(numDays,0,0,0)\n  )\n}\n\n.create-or-alter function with (docstring = \"Get All Call Records for a given user in the last {days} days\") GetUserCallRecords(userId: guid, numDays: int = long(-1)) {\n  ##FUNCTION_NAME##(numDays)\n  | where Caller_UserId == userId or Callee_UserId == userId\n}\n\n.create-or-alter table ##TABLE_NAME## ingestion json mapping \"CallRecordMappingJsonMapping\"\n```\n[\n    {\"column\":\"CallRecordTenantIdContext\",\"datatype\":\"string\",\"path\":\"$.CallRecordTenantIdContext\"},\n    {\"column\":\"CallId\",\"datatype\":\"guid\",\"path\":\"$.CallId\"},\n    {\"column\":\"SessionId\",\"datatype\":\"guid\",\"path\":\"$.SessionId\"},\n    {\"column\":\"StreamId\",\"datatype\":\"string\",\"path\":\"$.StreamId\"},\n    {\"column\":\"StreamDirection\",\"datatype\":\"string\",\"path\":\"$.StreamDirection\"},\n    {\"column\":\"MediaLabel\",\"datatype\":\"string\",\"path\":\"$.MediaLabel\"},\n    {\"column\":\"CallStartTime\",\"datatype\":\"datetime\",\"path\":\"$.CallStartTime\"},\n    {\"column\":\"CallEndTime\",\"datatype\":\"datetime\",\"path\":\"$.CallEndTime\"},\n    {\"column\":\"SessionStartTime\",\"datatype\":\"datetime\",\"path\":\"$.SessionStartTime\"},\n    {\"column\":\"SessionEndTime\",\"datatype\":\"datetime\",\"path\":\"$.SessionEndTime\"},\n    {\"column\":\"LastModifiedDateTimeOffset\",\"datatype\":\"datetime\",\"path\":\"$.LastModifiedDateTimeOffset\"},\n    {\"column\":\"CallType\",\"datatype\":\"string\",\"path\":\"$.CallType\"},\n    {\"column\":\"JoinWebUrl\",\"datatype\":\"string\",\"path\":\"$.JoinWebUrl\"},\n    {\"column\":\"VideoCodec\",\"datatype\":\"string\",\"path\":\"$.VideoCodec\"},\n    {\"column\":\"AudioCodec\",\"datatype\":\"string\",\"path\":\"$.AudioCodec\"},\n    {\"column\":\"WasMediaBypassed\",\"datatype\":\"bool\",\"path\":\"$.WasMediaBypassed\"},\n    {\"column\":\"FailureStage\",\"datatype\":\"string\",\"path\":\"$.FailureStage\"},\n    {\"column\":\"FailureReason\",\"datatype\":\"string\",\"path\":\"$.FailureReason\"},\n    {\"column\":\"PacketUtilization\",\"datatype\":\"long\",\"path\":\"$.PacketUtilization\"},\n    {\"column\":\"AverageBandwidthEstimate\",\"datatype\":\"long\",\"path\":\"$.AverageBandwidthEstimate\"},\n    {\"column\":\"AverageJitter\",\"datatype\":\"timespan\",\"path\":\"$.AverageJitter\"},\n    {\"column\":\"MaxJitter\",\"datatype\":\"timespan\",\"path\":\"$.MaxJitter\"},\n    {\"column\":\"AverageRoundTripTime\",\"datatype\":\"timespan\",\"path\":\"$.AverageRoundTripTime\"},\n    {\"column\":\"MaxRoundTripTime\",\"datatype\":\"timespan\",\"path\":\"$.MaxRoundTripTime\"},\n    {\"column\":\"AverageAudioNetworkJitter\",\"datatype\":\"timespan\",\"path\":\"$.AverageAudioNetworkJitter\"},\n    {\"column\":\"MaxAudioNetworkJitter\",\"datatype\":\"timespan\",\"path\":\"$.MaxAudioNetworkJitter\"},\n    {\"column\":\"AverageAudioDegradation\",\"datatype\":\"real\",\"path\":\"$.AverageAudioDegradation\"},\n    {\"column\":\"AveragePacketLossRate\",\"datatype\":\"real\",\"path\":\"$.AveragePacketLossRate\"},\n    {\"column\":\"MaxPacketLossRate\",\"datatype\":\"real\",\"path\":\"$.MaxPacketLossRate\"},\n    {\"column\":\"PostForwardErrorCorrectionPacketLossRate\",\"datatype\":\"real\",\"path\":\"$.PostForwardErrorCorrectionPacketLossRate\"},\n    {\"column\":\"AverageRatioOfConcealedSamples\",\"datatype\":\"real\",\"path\":\"$.AverageRatioOfConcealedSamples\"},\n    {\"column\":\"MaxRatioOfConcealedSamples\",\"datatype\":\"real\",\"path\":\"$.MaxRatioOfConcealedSamples\"},\n    {\"column\":\"LowVideoProcessingCapabilityRatio\",\"datatype\":\"real\",\"path\":\"$.LowVideoProcessingCapabilityRatio\"},\n    {\"column\":\"AverageVideoFrameRate\",\"datatype\":\"real\",\"path\":\"$.AverageVideoFrameRate\"},\n    {\"column\":\"AverageReceivedFrameRate\",\"datatype\":\"real\",\"path\":\"$.AverageReceivedFrameRate\"},\n    {\"column\":\"LowFrameRateRatio\",\"datatype\":\"real\",\"path\":\"$.LowFrameRateRatio\"},\n    {\"column\":\"AverageVideoPacketLossRate\",\"datatype\":\"real\",\"path\":\"$.AverageVideoPacketLossRate\"},\n    {\"column\":\"AverageVideoFrameLossPercentage\",\"datatype\":\"real\",\"path\":\"$.AverageVideoFrameLossPercentage\"},\n    {\"column\":\"Organizer_UserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_UserDisplayName\"},\n    {\"column\":\"Organizer_UserId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_UserId\"},\n    {\"column\":\"Organizer_UserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_UserTenantId\"},\n    {\"column\":\"Organizer_ApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_ApplicationInstanceDisplayName\"},\n    {\"column\":\"Organizer_ApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_ApplicationInstanceId\"},\n    {\"column\":\"Organizer_ApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_ApplicationInstanceTenantId\"},\n    {\"column\":\"Organizer_GuestDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_GuestDisplayName\"},\n    {\"column\":\"Organizer_GuestId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_GuestId\"},\n    {\"column\":\"Organizer_GuestTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_GuestTenantId\"},\n    {\"column\":\"Organizer_PhoneDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_PhoneDisplayName\"},\n    {\"column\":\"Organizer_PhoneId\",\"datatype\":\"string\",\"path\":\"$.Organizer_PhoneId\"},\n    {\"column\":\"Organizer_PhoneTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_PhoneTenantId\"},\n    {\"column\":\"Organizer_OnPremisesDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_OnPremisesDisplayName\"},\n    {\"column\":\"Organizer_OnPremisesId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_OnPremisesId\"},\n    {\"column\":\"Organizer_OnPremisesTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_OnPremisesTenantId\"},\n    {\"column\":\"Organizer_EncryptedDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_EncryptedDisplayName\"},\n    {\"column\":\"Organizer_EncryptedId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_EncryptedId\"},\n    {\"column\":\"Organizer_EncryptedTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_EncryptedTenantId\"},\n    {\"column\":\"Organizer_AcsUserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_AcsUserDisplayName\"},\n    {\"column\":\"Organizer_AcsUserId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_AcsUserId\"},\n    {\"column\":\"Organizer_AcsUserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_AcsUserTenantId\"},\n    {\"column\":\"Organizer_SpoolUserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_SpoolUserDisplayName\"},\n    {\"column\":\"Organizer_SpoolUserId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_SpoolUserId\"},\n    {\"column\":\"Organizer_SpoolUserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_SpoolUserTenantId\"},\n    {\"column\":\"Organizer_AcsApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_AcsApplicationInstanceDisplayName\"},\n    {\"column\":\"Organizer_AcsApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_AcsApplicationInstanceId\"},\n    {\"column\":\"Organizer_AcsApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_AcsApplicationInstanceTenantId\"},\n    {\"column\":\"Organizer_SpoolApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_SpoolApplicationInstanceDisplayName\"},\n    {\"column\":\"Organizer_SpoolApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_SpoolApplicationInstanceId\"},\n    {\"column\":\"Organizer_SpoolApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_SpoolApplicationInstanceTenantId\"},\n    {\"column\":\"Organizer_Id\",\"datatype\":\"string\",\"path\":\"$.Organizer_Id\"},\n    {\"column\":\"Organizer_UserPrincipalName\",\"datatype\":\"string\",\"path\":\"$.Organizer_UserPrincipalName\"},\n    {\"column\":\"Organizer_DisplayName\",\"datatype\":\"string\",\"path\":\"$.Organizer_DisplayName\"},\n    {\"column\":\"Organizer_TenantId\",\"datatype\":\"guid\",\"path\":\"$.Organizer_TenantId\"},\n    {\"column\":\"Organizer_IdType\",\"datatype\":\"string\",\"path\":\"$.Organizer_IdType\"},\n    {\"column\":\"Callee_UserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_UserDisplayName\"},\n    {\"column\":\"Callee_UserId\",\"datatype\":\"guid\",\"path\":\"$.Callee_UserId\"},\n    {\"column\":\"Callee_UserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_UserTenantId\"},\n    {\"column\":\"Callee_ApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_ApplicationInstanceDisplayName\"},\n    {\"column\":\"Callee_ApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Callee_ApplicationInstanceId\"},\n    {\"column\":\"Callee_ApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_ApplicationInstanceTenantId\"},\n    {\"column\":\"Callee_GuestDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_GuestDisplayName\"},\n    {\"column\":\"Callee_GuestId\",\"datatype\":\"guid\",\"path\":\"$.Callee_GuestId\"},\n    {\"column\":\"Callee_GuestTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_GuestTenantId\"},\n    {\"column\":\"Callee_PhoneDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_PhoneDisplayName\"},\n    {\"column\":\"Callee_PhoneId\",\"datatype\":\"string\",\"path\":\"$.Callee_PhoneId\"},\n    {\"column\":\"Callee_PhoneTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_PhoneTenantId\"},\n    {\"column\":\"Callee_OnPremisesDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_OnPremisesDisplayName\"},\n    {\"column\":\"Callee_OnPremisesId\",\"datatype\":\"guid\",\"path\":\"$.Callee_OnPremisesId\"},\n    {\"column\":\"Callee_OnPremisesTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_OnPremisesTenantId\"},\n    {\"column\":\"Callee_EncryptedDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_EncryptedDisplayName\"},\n    {\"column\":\"Callee_EncryptedId\",\"datatype\":\"guid\",\"path\":\"$.Callee_EncryptedId\"},\n    {\"column\":\"Callee_EncryptedTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_EncryptedTenantId\"},\n    {\"column\":\"Callee_AcsUserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_AcsUserDisplayName\"},\n    {\"column\":\"Callee_AcsUserId\",\"datatype\":\"guid\",\"path\":\"$.Callee_AcsUserId\"},\n    {\"column\":\"Callee_AcsUserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_AcsUserTenantId\"},\n    {\"column\":\"Callee_SpoolUserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_SpoolUserDisplayName\"},\n    {\"column\":\"Callee_SpoolUserId\",\"datatype\":\"guid\",\"path\":\"$.Callee_SpoolUserId\"},\n    {\"column\":\"Callee_SpoolUserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_SpoolUserTenantId\"},\n    {\"column\":\"Callee_AcsApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_AcsApplicationInstanceDisplayName\"},\n    {\"column\":\"Callee_AcsApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Callee_AcsApplicationInstanceId\"},\n    {\"column\":\"Callee_AcsApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_AcsApplicationInstanceTenantId\"},\n    {\"column\":\"Callee_SpoolApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_SpoolApplicationInstanceDisplayName\"},\n    {\"column\":\"Callee_SpoolApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Callee_SpoolApplicationInstanceId\"},\n    {\"column\":\"Callee_SpoolApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_SpoolApplicationInstanceTenantId\"},\n    {\"column\":\"Callee_Id\",\"datatype\":\"string\",\"path\":\"$.Callee_Id\"},\n    {\"column\":\"Callee_UserPrincipalName\",\"datatype\":\"string\",\"path\":\"$.Callee_UserPrincipalName\"},\n    {\"column\":\"Callee_DisplayName\",\"datatype\":\"string\",\"path\":\"$.Callee_DisplayName\"},\n    {\"column\":\"Callee_TenantId\",\"datatype\":\"guid\",\"path\":\"$.Callee_TenantId\"},\n    {\"column\":\"Callee_IdType\",\"datatype\":\"string\",\"path\":\"$.Callee_IdType\"},\n    {\"column\":\"Callee_EndpointType\",\"datatype\":\"string\",\"path\":\"$.Callee_EndpointType\"},\n    {\"column\":\"Callee_ProductFamily\",\"datatype\":\"string\",\"path\":\"$.Callee_ProductFamily\"},\n    {\"column\":\"Callee_Platform\",\"datatype\":\"string\",\"path\":\"$.Callee_Platform\"},\n    {\"column\":\"Callee_UserAgentHeaderValue\",\"datatype\":\"string\",\"path\":\"$.Callee_UserAgentHeaderValue\"},\n    {\"column\":\"Callee_ServiceRole\",\"datatype\":\"string\",\"path\":\"$.Callee_ServiceRole\"},\n    {\"column\":\"Callee_ApplicationVersion\",\"datatype\":\"string\",\"path\":\"$.Callee_ApplicationVersion\"},\n    {\"column\":\"Callee_AzureAdAppId\",\"datatype\":\"guid\",\"path\":\"$.Callee_AzureAdAppId\"},\n    {\"column\":\"Callee_CommunicationServiceId\",\"datatype\":\"guid\",\"path\":\"$.Callee_CommunicationServiceId\"},\n    {\"column\":\"Callee_ConnectionType\",\"datatype\":\"string\",\"path\":\"$.Callee_ConnectionType\"},\n    {\"column\":\"Callee_ReflexiveIPAddress\",\"datatype\":\"string\",\"path\":\"$.Callee_ReflexiveIPAddress\"},\n    {\"column\":\"Callee_Subnet\",\"datatype\":\"string\",\"path\":\"$.Callee_Subnet\"},\n    {\"column\":\"Callee_IpAddress\",\"datatype\":\"string\",\"path\":\"$.Callee_IpAddress\"},\n    {\"column\":\"Callee_MacAddress\",\"datatype\":\"string\",\"path\":\"$.Callee_MacAddress\"},\n    {\"column\":\"Callee_LinkSpeed\",\"datatype\":\"long\",\"path\":\"$.Callee_LinkSpeed\"},\n    {\"column\":\"Callee_NetworkTransportProtocol\",\"datatype\":\"string\",\"path\":\"$.Callee_NetworkTransportProtocol\"},\n    {\"column\":\"Callee_Port\",\"datatype\":\"int\",\"path\":\"$.Callee_Port\"},\n    {\"column\":\"Callee_RelayIPAddress\",\"datatype\":\"string\",\"path\":\"$.Callee_RelayIPAddress\"},\n    {\"column\":\"Callee_RelayPort\",\"datatype\":\"int\",\"path\":\"$.Callee_RelayPort\"},\n    {\"column\":\"Callee_DnsSuffix\",\"datatype\":\"string\",\"path\":\"$.Callee_DnsSuffix\"},\n    {\"column\":\"Callee_TraceRouteHops\",\"datatype\":\"string\",\"path\":\"$.Callee_TraceRouteHops\"},\n    {\"column\":\"Callee_BSSID\",\"datatype\":\"string\",\"path\":\"$.Callee_BSSID\"},\n    {\"column\":\"Callee_WifiRadioType\",\"datatype\":\"string\",\"path\":\"$.Callee_WifiRadioType\"},\n    {\"column\":\"Callee_WifiBand\",\"datatype\":\"string\",\"path\":\"$.Callee_WifiBand\"},\n    {\"column\":\"Callee_WifiChannel\",\"datatype\":\"int\",\"path\":\"$.Callee_WifiChannel\"},\n    {\"column\":\"Callee_WifiSignalStrength\",\"datatype\":\"int\",\"path\":\"$.Callee_WifiSignalStrength\"},\n    {\"column\":\"Callee_WifiBatteryCharge\",\"datatype\":\"int\",\"path\":\"$.Callee_WifiBatteryCharge\"},\n    {\"column\":\"Callee_WifiMicrosoftDriver\",\"datatype\":\"string\",\"path\":\"$.Callee_WifiMicrosoftDriver\"},\n    {\"column\":\"Callee_WifiMicrosoftDriverVersion\",\"datatype\":\"string\",\"path\":\"$.Callee_WifiMicrosoftDriverVersion\"},\n    {\"column\":\"Callee_WifiVendorDriver\",\"datatype\":\"string\",\"path\":\"$.Callee_WifiVendorDriver\"},\n    {\"column\":\"Callee_WifiVendorDriverVersion\",\"datatype\":\"string\",\"path\":\"$.Callee_WifiVendorDriverVersion\"},\n    {\"column\":\"Callee_CaptureDeviceName\",\"datatype\":\"string\",\"path\":\"$.Callee_CaptureDeviceName\"},\n    {\"column\":\"Callee_CaptureDeviceDriver\",\"datatype\":\"string\",\"path\":\"$.Callee_CaptureDeviceDriver\"},\n    {\"column\":\"Callee_RenderDeviceName\",\"datatype\":\"string\",\"path\":\"$.Callee_RenderDeviceName\"},\n    {\"column\":\"Callee_RenderDeviceDriver\",\"datatype\":\"string\",\"path\":\"$.Callee_RenderDeviceDriver\"},\n    {\"column\":\"Callee_SentSignalLevel\",\"datatype\":\"real\",\"path\":\"$.Callee_SentSignalLevel\"},\n    {\"column\":\"Callee_SentNoiseLevel\",\"datatype\":\"real\",\"path\":\"$.Callee_SentNoiseLevel\"},\n    {\"column\":\"Callee_MicGlitchRate\",\"datatype\":\"real\",\"path\":\"$.Callee_MicGlitchRate\"},\n    {\"column\":\"Callee_ReceivedSignalLevel\",\"datatype\":\"real\",\"path\":\"$.Callee_ReceivedSignalLevel\"},\n    {\"column\":\"Callee_ReceivedNoiseLevel\",\"datatype\":\"real\",\"path\":\"$.Callee_ReceivedNoiseLevel\"},\n    {\"column\":\"Callee_SpeakerGlitchRate\",\"datatype\":\"real\",\"path\":\"$.Callee_SpeakerGlitchRate\"},\n    {\"column\":\"Callee_HowlingEventCount\",\"datatype\":\"int\",\"path\":\"$.Callee_HowlingEventCount\"},\n    {\"column\":\"Callee_InitialSignalLevelRootMeanSquare\",\"datatype\":\"real\",\"path\":\"$.Callee_InitialSignalLevelRootMeanSquare\"},\n    {\"column\":\"Callee_DeviceGlitchEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_DeviceGlitchEventRatio\"},\n    {\"column\":\"Callee_DeviceClippingEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_DeviceClippingEventRatio\"},\n    {\"column\":\"Callee_LowSpeechToNoiseEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_LowSpeechToNoiseEventRatio\"},\n    {\"column\":\"Callee_CaptureNotFunctioningEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_CaptureNotFunctioningEventRatio\"},\n    {\"column\":\"Callee_SentQualityEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_SentQualityEventRatio\"},\n    {\"column\":\"Callee_LowSpeechLevelEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_LowSpeechLevelEventRatio\"},\n    {\"column\":\"Callee_RenderNotFunctioningEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_RenderNotFunctioningEventRatio\"},\n    {\"column\":\"Callee_ReceivedQualityEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_ReceivedQualityEventRatio\"},\n    {\"column\":\"Callee_RenderZeroVolumeEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_RenderZeroVolumeEventRatio\"},\n    {\"column\":\"Callee_RenderMuteEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_RenderMuteEventRatio\"},\n    {\"column\":\"Callee_CpuInsufficentEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_CpuInsufficentEventRatio\"},\n    {\"column\":\"Callee_DelayEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_DelayEventRatio\"},\n    {\"column\":\"Callee_BandwidthLowEventRatio\",\"datatype\":\"real\",\"path\":\"$.Callee_BandwidthLowEventRatio\"},\n    {\"column\":\"Callee_FeedbackRating\",\"datatype\":\"string\",\"path\":\"$.Callee_FeedbackRating\"},\n    {\"column\":\"Callee_FeedbackText\",\"datatype\":\"string\",\"path\":\"$.Callee_FeedbackText\"},\n    {\"column\":\"Callee_FeedbackTokens\",\"datatype\":\"string\",\"path\":\"$.Callee_FeedbackTokens\"},\n    {\"column\":\"Caller_UserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_UserDisplayName\"},\n    {\"column\":\"Caller_UserId\",\"datatype\":\"guid\",\"path\":\"$.Caller_UserId\"},\n    {\"column\":\"Caller_UserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_UserTenantId\"},\n    {\"column\":\"Caller_ApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_ApplicationInstanceDisplayName\"},\n    {\"column\":\"Caller_ApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Caller_ApplicationInstanceId\"},\n    {\"column\":\"Caller_ApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_ApplicationInstanceTenantId\"},\n    {\"column\":\"Caller_GuestDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_GuestDisplayName\"},\n    {\"column\":\"Caller_GuestId\",\"datatype\":\"guid\",\"path\":\"$.Caller_GuestId\"},\n    {\"column\":\"Caller_GuestTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_GuestTenantId\"},\n    {\"column\":\"Caller_PhoneDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_PhoneDisplayName\"},\n    {\"column\":\"Caller_PhoneId\",\"datatype\":\"string\",\"path\":\"$.Caller_PhoneId\"},\n    {\"column\":\"Caller_PhoneTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_PhoneTenantId\"},\n    {\"column\":\"Caller_OnPremisesDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_OnPremisesDisplayName\"},\n    {\"column\":\"Caller_OnPremisesId\",\"datatype\":\"guid\",\"path\":\"$.Caller_OnPremisesId\"},\n    {\"column\":\"Caller_OnPremisesTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_OnPremisesTenantId\"},\n    {\"column\":\"Caller_EncryptedDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_EncryptedDisplayName\"},\n    {\"column\":\"Caller_EncryptedId\",\"datatype\":\"guid\",\"path\":\"$.Caller_EncryptedId\"},\n    {\"column\":\"Caller_EncryptedTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_EncryptedTenantId\"},\n    {\"column\":\"Caller_AcsUserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_AcsUserDisplayName\"},\n    {\"column\":\"Caller_AcsUserId\",\"datatype\":\"guid\",\"path\":\"$.Caller_AcsUserId\"},\n    {\"column\":\"Caller_AcsUserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_AcsUserTenantId\"},\n    {\"column\":\"Caller_SpoolUserDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_SpoolUserDisplayName\"},\n    {\"column\":\"Caller_SpoolUserId\",\"datatype\":\"guid\",\"path\":\"$.Caller_SpoolUserId\"},\n    {\"column\":\"Caller_SpoolUserTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_SpoolUserTenantId\"},\n    {\"column\":\"Caller_AcsApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_AcsApplicationInstanceDisplayName\"},\n    {\"column\":\"Caller_AcsApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Caller_AcsApplicationInstanceId\"},\n    {\"column\":\"Caller_AcsApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_AcsApplicationInstanceTenantId\"},\n    {\"column\":\"Caller_SpoolApplicationInstanceDisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_SpoolApplicationInstanceDisplayName\"},\n    {\"column\":\"Caller_SpoolApplicationInstanceId\",\"datatype\":\"guid\",\"path\":\"$.Caller_SpoolApplicationInstanceId\"},\n    {\"column\":\"Caller_SpoolApplicationInstanceTenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_SpoolApplicationInstanceTenantId\"},\n    {\"column\":\"Caller_Id\",\"datatype\":\"string\",\"path\":\"$.Caller_Id\"},\n    {\"column\":\"Caller_UserPrincipalName\",\"datatype\":\"string\",\"path\":\"$.Caller_UserPrincipalName\"},\n    {\"column\":\"Caller_DisplayName\",\"datatype\":\"string\",\"path\":\"$.Caller_DisplayName\"},\n    {\"column\":\"Caller_TenantId\",\"datatype\":\"guid\",\"path\":\"$.Caller_TenantId\"},\n    {\"column\":\"Caller_IdType\",\"datatype\":\"string\",\"path\":\"$.Caller_IdType\"},\n    {\"column\":\"Caller_EndpointType\",\"datatype\":\"string\",\"path\":\"$.Caller_EndpointType\"},\n    {\"column\":\"Caller_ProductFamily\",\"datatype\":\"string\",\"path\":\"$.Caller_ProductFamily\"},\n    {\"column\":\"Caller_Platform\",\"datatype\":\"string\",\"path\":\"$.Caller_Platform\"},\n    {\"column\":\"Caller_UserAgentHeaderValue\",\"datatype\":\"string\",\"path\":\"$.Caller_UserAgentHeaderValue\"},\n    {\"column\":\"Caller_ServiceRole\",\"datatype\":\"string\",\"path\":\"$.Caller_ServiceRole\"},\n    {\"column\":\"Caller_ApplicationVersion\",\"datatype\":\"string\",\"path\":\"$.Caller_ApplicationVersion\"},\n    {\"column\":\"Caller_AzureAdAppId\",\"datatype\":\"guid\",\"path\":\"$.Caller_AzureAdAppId\"},\n    {\"column\":\"Caller_CommunicationServiceId\",\"datatype\":\"guid\",\"path\":\"$.Caller_CommunicationServiceId\"},\n    {\"column\":\"Caller_ConnectionType\",\"datatype\":\"string\",\"path\":\"$.Caller_ConnectionType\"},\n    {\"column\":\"Caller_ReflexiveIPAddress\",\"datatype\":\"string\",\"path\":\"$.Caller_ReflexiveIPAddress\"},\n    {\"column\":\"Caller_Subnet\",\"datatype\":\"string\",\"path\":\"$.Caller_Subnet\"},\n    {\"column\":\"Caller_IpAddress\",\"datatype\":\"string\",\"path\":\"$.Caller_IpAddress\"},\n    {\"column\":\"Caller_MacAddress\",\"datatype\":\"string\",\"path\":\"$.Caller_MacAddress\"},\n    {\"column\":\"Caller_LinkSpeed\",\"datatype\":\"long\",\"path\":\"$.Caller_LinkSpeed\"},\n    {\"column\":\"Caller_NetworkTransportProtocol\",\"datatype\":\"string\",\"path\":\"$.Caller_NetworkTransportProtocol\"},\n    {\"column\":\"Caller_Port\",\"datatype\":\"int\",\"path\":\"$.Caller_Port\"},\n    {\"column\":\"Caller_RelayIPAddress\",\"datatype\":\"string\",\"path\":\"$.Caller_RelayIPAddress\"},\n    {\"column\":\"Caller_RelayPort\",\"datatype\":\"int\",\"path\":\"$.Caller_RelayPort\"},\n    {\"column\":\"Caller_DnsSuffix\",\"datatype\":\"string\",\"path\":\"$.Caller_DnsSuffix\"},\n    {\"column\":\"Caller_TraceRouteHops\",\"datatype\":\"string\",\"path\":\"$.Caller_TraceRouteHops\"},\n    {\"column\":\"Caller_BSSID\",\"datatype\":\"string\",\"path\":\"$.Caller_BSSID\"},\n    {\"column\":\"Caller_WifiRadioType\",\"datatype\":\"string\",\"path\":\"$.Caller_WifiRadioType\"},\n    {\"column\":\"Caller_WifiBand\",\"datatype\":\"string\",\"path\":\"$.Caller_WifiBand\"},\n    {\"column\":\"Caller_WifiChannel\",\"datatype\":\"int\",\"path\":\"$.Caller_WifiChannel\"},\n    {\"column\":\"Caller_WifiSignalStrength\",\"datatype\":\"int\",\"path\":\"$.Caller_WifiSignalStrength\"},\n    {\"column\":\"Caller_WifiBatteryCharge\",\"datatype\":\"int\",\"path\":\"$.Caller_WifiBatteryCharge\"},\n    {\"column\":\"Caller_WifiMicrosoftDriver\",\"datatype\":\"string\",\"path\":\"$.Caller_WifiMicrosoftDriver\"},\n    {\"column\":\"Caller_WifiMicrosoftDriverVersion\",\"datatype\":\"string\",\"path\":\"$.Caller_WifiMicrosoftDriverVersion\"},\n    {\"column\":\"Caller_WifiVendorDriver\",\"datatype\":\"string\",\"path\":\"$.Caller_WifiVendorDriver\"},\n    {\"column\":\"Caller_WifiVendorDriverVersion\",\"datatype\":\"string\",\"path\":\"$.Caller_WifiVendorDriverVersion\"},\n    {\"column\":\"Caller_CaptureDeviceName\",\"datatype\":\"string\",\"path\":\"$.Caller_CaptureDeviceName\"},\n    {\"column\":\"Caller_CaptureDeviceDriver\",\"datatype\":\"string\",\"path\":\"$.Caller_CaptureDeviceDriver\"},\n    {\"column\":\"Caller_RenderDeviceName\",\"datatype\":\"string\",\"path\":\"$.Caller_RenderDeviceName\"},\n    {\"column\":\"Caller_RenderDeviceDriver\",\"datatype\":\"string\",\"path\":\"$.Caller_RenderDeviceDriver\"},\n    {\"column\":\"Caller_SentSignalLevel\",\"datatype\":\"real\",\"path\":\"$.Caller_SentSignalLevel\"},\n    {\"column\":\"Caller_SentNoiseLevel\",\"datatype\":\"real\",\"path\":\"$.Caller_SentNoiseLevel\"},\n    {\"column\":\"Caller_MicGlitchRate\",\"datatype\":\"real\",\"path\":\"$.Caller_MicGlitchRate\"},\n    {\"column\":\"Caller_ReceivedSignalLevel\",\"datatype\":\"real\",\"path\":\"$.Caller_ReceivedSignalLevel\"},\n    {\"column\":\"Caller_ReceivedNoiseLevel\",\"datatype\":\"real\",\"path\":\"$.Caller_ReceivedNoiseLevel\"},\n    {\"column\":\"Caller_SpeakerGlitchRate\",\"datatype\":\"real\",\"path\":\"$.Caller_SpeakerGlitchRate\"},\n    {\"column\":\"Caller_HowlingEventCount\",\"datatype\":\"int\",\"path\":\"$.Caller_HowlingEventCount\"},\n    {\"column\":\"Caller_InitialSignalLevelRootMeanSquare\",\"datatype\":\"real\",\"path\":\"$.Caller_InitialSignalLevelRootMeanSquare\"},\n    {\"column\":\"Caller_DeviceGlitchEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_DeviceGlitchEventRatio\"},\n    {\"column\":\"Caller_DeviceClippingEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_DeviceClippingEventRatio\"},\n    {\"column\":\"Caller_LowSpeechToNoiseEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_LowSpeechToNoiseEventRatio\"},\n    {\"column\":\"Caller_CaptureNotFunctioningEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_CaptureNotFunctioningEventRatio\"},\n    {\"column\":\"Caller_SentQualityEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_SentQualityEventRatio\"},\n    {\"column\":\"Caller_LowSpeechLevelEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_LowSpeechLevelEventRatio\"},\n    {\"column\":\"Caller_RenderNotFunctioningEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_RenderNotFunctioningEventRatio\"},\n    {\"column\":\"Caller_ReceivedQualityEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_ReceivedQualityEventRatio\"},\n    {\"column\":\"Caller_RenderZeroVolumeEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_RenderZeroVolumeEventRatio\"},\n    {\"column\":\"Caller_RenderMuteEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_RenderMuteEventRatio\"},\n    {\"column\":\"Caller_CpuInsufficentEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_CpuInsufficentEventRatio\"},\n    {\"column\":\"Caller_DelayEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_DelayEventRatio\"},\n    {\"column\":\"Caller_BandwidthLowEventRatio\",\"datatype\":\"real\",\"path\":\"$.Caller_BandwidthLowEventRatio\"},\n    {\"column\":\"Caller_FeedbackRating\",\"datatype\":\"string\",\"path\":\"$.Caller_FeedbackRating\"},\n    {\"column\":\"Caller_FeedbackText\",\"datatype\":\"string\",\"path\":\"$.Caller_FeedbackText\"},\n    {\"column\":\"Caller_FeedbackTokens\",\"datatype\":\"string\",\"path\":\"$.Caller_FeedbackTokens\"}\n]\n```"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Kusto/clusters/databases/scripts",
+              "apiVersion": "2022-12-29",
+              "name": "[format('{0}/{1}/{2}', parameters('clusterName'), parameters('databaseName'), guid(parameters('tableName'), 'createtable'))]",
+              "properties": {
+                "continueOnErrors": false,
+                "forceUpdateTag": "[parameters('updateTag')]",
+                "scriptContent": "[replace(replace(replace(variables('$fxv#0'), '##TABLE_NAME##', parameters('tableName')), '##VIEW_NAME##', parameters('viewName')), '##FUNCTION_NAME##', parameters('callRecordsFunctionName'))]"
+              }
+            },
+            {
+              "type": "Microsoft.Kusto/clusters/databases/scripts",
+              "apiVersion": "2022-12-29",
+              "name": "[format('{0}/{1}/{2}', parameters('clusterName'), parameters('databaseName'), guid(parameters('tableName'), 'configuretable'))]",
+              "properties": {
+                "continueOnErrors": false,
+                "forceUpdateTag": "[parameters('updateTag')]",
+                "scriptContent": "[replace(replace(replace(variables('$fxv#1'), '##TABLE_NAME##', parameters('tableName')), '##VIEW_NAME##', parameters('viewName')), '##FUNCTION_NAME##', parameters('callRecordsFunctionName'))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Kusto/clusters/databases/scripts', parameters('clusterName'), parameters('databaseName'), guid(parameters('tableName'), 'createtable'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(parameters('clusterName'), parameters('tableName'), 'fbdf93bf-df7d-467e-a4d2-9458aa1360c8')]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'fbdf93bf-df7d-467e-a4d2-9458aa1360c8')]",
+                "principalId": "[reference(resourceId('Microsoft.Kusto/clusters', parameters('clusterName')), '2022-12-29', 'full').identity.principalId]"
+              }
+            },
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+              "apiVersion": "2023-09-15",
+              "name": "[format('{0}/{1}', parameters('cosmosAccountName'), guid(parameters('clusterName'), parameters('tableName'), '00000000-0000-0000-0000-000000000001'))]",
+              "properties": {
+                "roleDefinitionId": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', parameters('cosmosAccountName'), '00000000-0000-0000-0000-000000000001')]",
+                "principalId": "[reference(resourceId('Microsoft.Kusto/clusters', parameters('clusterName')), '2022-12-29', 'full').identity.principalId]",
+                "scope": "[replace(replace(resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', parameters('cosmosAccountName'), parameters('callRecordsDatabaseName'), parameters('callRecordsContainerName')), '/sqlDatabases/', '/dbs/'), '/containers/', '/colls/')]"
+              }
+            },
+            {
+              "type": "Microsoft.Kusto/clusters/databases/dataConnections",
+              "apiVersion": "2023-08-15",
+              "name": "[format('{0}/{1}/{2}', parameters('clusterName'), parameters('databaseName'), format('{0}Ingestion', parameters('tableName')))]",
+              "location": "[parameters('location')]",
+              "kind": "CosmosDb",
+              "properties": {
+                "cosmosDbAccountResourceId": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName'))]",
+                "cosmosDbDatabase": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', parameters('cosmosAccountName'), parameters('callRecordsDatabaseName')), '2023-09-15').resource.id]",
+                "cosmosDbContainer": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', parameters('cosmosAccountName'), parameters('callRecordsDatabaseName'), parameters('callRecordsContainerName')), '2023-09-15').resource.id]",
+                "managedIdentityResourceId": "[resourceId('Microsoft.Kusto/clusters', parameters('clusterName'))]",
+                "tableName": "[parameters('tableName')]",
+                "mappingRuleName": "CallRecordMappingJsonMapping"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Authorization/roleAssignments', guid(parameters('clusterName'), parameters('tableName'), 'fbdf93bf-df7d-467e-a4d2-9458aa1360c8'))]",
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', parameters('cosmosAccountName'), guid(parameters('clusterName'), parameters('tableName'), '00000000-0000-0000-0000-000000000001'))]",
+                "[resourceId('Microsoft.Kusto/clusters/databases/scripts', parameters('clusterName'), parameters('databaseName'), guid(parameters('tableName'), 'configuretable'))]"
+              ]
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'cosmosDeploy')]",
+        "[resourceId('Microsoft.Resources/deployments', 'kustoDeploy')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "codeDeploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "functionAppName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionDeploy'), '2025-04-01').outputs.functionName.value]"
+          },
+          "gitRepoUrl": {
+            "value": "[parameters('gitRepoUrl')]"
+          },
+          "gitBranch": {
+            "value": "[parameters('gitBranch')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "6958926538292988451"
+            }
+          },
+          "parameters": {
+            "functionAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the Azure Function App to deploy to."
+              }
+            },
+            "gitRepoUrl": {
+              "type": "string",
+              "defaultValue": "https://github.com/Microsoft/CallRecordInsights.git",
+              "metadata": {
+                "description": "The URL to the GitHub repository to deploy."
+              }
+            },
+            "gitBranch": {
+              "type": "string",
+              "defaultValue": "main",
+              "metadata": {
+                "description": "The branch of the GitHub repository to deploy."
+              }
+            }
+          },
+          "resources": [
+            {
+              "condition": "[not(empty(parameters('gitRepoUrl')))]",
+              "type": "Microsoft.Web/sites/sourcecontrols",
+              "apiVersion": "2022-09-01",
+              "name": "[format('{0}/{1}', parameters('functionAppName'), 'web')]",
+              "properties": {
+                "repoUrl": "[parameters('gitRepoUrl')]",
+                "branch": "[parameters('gitBranch')]",
+                "isManualIntegration": true
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'functionDeploy')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "appPrincipalprincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionDeploy'), '2025-04-01').outputs.functionAppIdentity.value.principalId]"
+    },
+    "functionName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionDeploy'), '2025-04-01').outputs.functionName.value]"
+    },
+    "appDomain": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'functionDeploy'), '2025-04-01').outputs.appDomain.value]"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+$DeploymentParameters = @{
+  ResourceGroupName = 'rg-cridemo3'
+  BaseResourceName  = 'cridemo3'
+  SubscriptionId    = '8e76ee68-2126-410e-a43d-5d22215b08fd'
+  TenantDomain      = 'dominicschranzoutlook.onmicrosoft.com'
+location = "switzerlandnorth"
+DeploymentSize = "DevTest"
+
+}
+.\deploy.ps1 @DeploymentParameters
