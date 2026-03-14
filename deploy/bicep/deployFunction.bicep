@@ -372,7 +372,7 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
     
         // Graph Subscription Manager Configuration
         { key: 'GraphSubscription__NotificationUrl', value: GraphNotificationUrl }
-        { key: 'GraphSubscription__Tenants', value: '078ec3c8-ba5a-4278-a477-831baad16bdd;8dcb713d-90f8-4ed5-bf42-662c132cfe44' }
+        { key: 'GraphSubscription__Tenants', value: tenantDomain }
         { key: 'AzureAd__Instance', value: environment().authentication.loginEndpoint }
         { key: 'AzureAd__TenantId', value: '078ec3c8-ba5a-4278-a477-831baad16bdd' }
         { key: 'AzureAd__ClientId', value: '1f58ce1b-d7a3-4200-a08c-a6e6911d14a9' }
