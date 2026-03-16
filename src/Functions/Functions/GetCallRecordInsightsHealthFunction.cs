@@ -129,9 +129,9 @@ namespace CallRecordInsights.Functions
 
         internal record HealthState
         {
-            public bool Healthy;
-            public string Status;
-            public string Url;
+            public bool Healthy { get; init; }
+            public string Status { get; init; }
+            public string Url { get; init; }
         }
 
         /// <summary>
@@ -155,7 +155,7 @@ namespace CallRecordInsights.Functions
 
             // In isolated worker model, connection configuration is accessed differently
             var eventHubConnectionString = configuration.GetValue<string>("EventHubConnection");
-            var eventHubNamespace = configuration.GetValue<string>("EventHubConnection__fullyQualifiedNamespace");
+            var eventHubNamespace = configuration.GetValue<string>("EventHubConnection:fullyQualifiedNamespace");
 
             if (string.IsNullOrEmpty(eventHubConnectionString) && string.IsNullOrEmpty(eventHubNamespace))
             {

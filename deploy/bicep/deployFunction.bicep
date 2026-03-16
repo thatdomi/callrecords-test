@@ -373,11 +373,6 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
         // Graph Subscription Manager Configuration
         { key: 'GraphSubscription__NotificationUrl', value: GraphNotificationUrl }
         { key: 'GraphSubscription__Tenants', value: tenantDomain }
-        { key: 'AzureAd__Instance', value: environment().authentication.loginEndpoint }
-        { key: 'AzureAd__TenantId', value: '078ec3c8-ba5a-4278-a477-831baad16bdd' }
-        { key: 'AzureAd__ClientId', value: '1f58ce1b-d7a3-4200-a08c-a6e6911d14a9' }
-        { key: 'AzureAd__ClientCredentials__0__SourceType', value: 'ClientSecret' }
-        { key: 'AzureAd__ClientCredentials__0__KeyVaultUrl', value:'@Microsoft.KeyVault(VaultName=${keyvault.name};SecretName=multitenantsecret)' }
 
         { key: 'CallRecordInsightsDb__EndpointUri', value: cosmosAccount.properties.documentEndpoint }
         { key: 'CallRecordInsightsDb__DatabaseName', value: cosmosAccount::database.properties.resource.id }

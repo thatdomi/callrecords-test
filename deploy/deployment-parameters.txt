@@ -1,8 +1,8 @@
 $DeploymentParameters = @{
-  ResourceGroupName = 'rg-cridemo3'
-  BaseResourceName  = 'cridemo3'
-  SubscriptionId    = '8e76ee68-2126-410e-a43d-5d22215b08fd'
-  TenantDomain      = 'dominicschranzoutlook.onmicrosoft.com'
+  ResourceGroupName = 'rg-callinsights-demo'
+  BaseResourceName  = 'callinsi1'
+  SubscriptionId    = '069fc655-d0e5-4b2c-a607-eb7270acc97d'
+  TenantDomain      = 'syntera.ch'
 location = "switzerlandnorth"
 DeploymentSize = "DevTest"
 GitRepoUrl = "https://github.com/thatdomi/callrecords-test"
