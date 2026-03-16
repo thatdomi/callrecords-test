@@ -129,9 +129,9 @@ namespace CallRecordInsights.Functions
 
         internal record HealthState
         {
-            public bool Healthy { get; init; }
-            public string Status { get; init; }
-            public string Url { get; init; }
+            public bool Healthy { get; set; }
+            public string Status { get; set; }
+            public string Url { get; set; }
         }
 
         /// <summary>
